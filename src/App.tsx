@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useDocker } from "./hooks/useDocker";
 import { ContainersTab } from "./components/ContainersTab";
 import { ImagesTab } from "./components/ImagesTab";
@@ -50,6 +51,24 @@ function App() {
     return () => clearInterval(interval);
   }, [fetchCurrentTab]);
 
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+
+  const startRuntime = async () => {
+    setRuntimeLoading(true);
+    setRuntimeError(null);
+    try {
+      await invoke("runtime_start");
+      // Wait a moment for socket to be ready
+      await new Promise((r) => setTimeout(r, 2000));
+      await ping();
+    } catch (e) {
+      setRuntimeError(String(e));
+    } finally {
+      setRuntimeLoading(false);
+    }
+  };
+
   if (!docker.connected) {
     return (
       <div className="app">
@@ -57,11 +76,25 @@ function App() {
           <i className="ri-server-line disconnected-icon" />
           <div className="disconnected-text">Docker not available</div>
           <div className="disconnected-hint">
-            Make sure Docker Desktop is running
+            No Docker runtime detected
           </div>
-          <button className="retry-btn" onClick={docker.ping}>
-            <i className="ri-refresh-line" /> Retry
-          </button>
+          {runtimeError && <div className="disconnected-error">{runtimeError}</div>}
+          <div className="disconnected-actions">
+            <button
+              className="retry-btn primary"
+              onClick={startRuntime}
+              disabled={runtimeLoading}
+            >
+              {runtimeLoading ? (
+                <><span className="loading-indicator" /> Starting runtime...</>
+              ) : (
+                <><i className="ri-play-fill" /> Start Built-in Runtime</>
+              )}
+            </button>
+            <button className="retry-btn" onClick={ping}>
+              <i className="ri-refresh-line" /> Retry Connection
+            </button>
+          </div>
         </div>
       </div>
     );

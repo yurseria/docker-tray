@@ -828,8 +828,38 @@ body {
   color: var(--text-muted);
 }
 
-.retry-btn {
+.disconnected-error {
+  font-size: 0.8rem;
+  color: var(--red);
+  margin-top: 0.5rem;
+  max-width: 300px;
+  text-align: center;
+  word-break: break-all;
+}
+
+.disconnected-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   margin-top: 0.9rem;
+}
+
+.retry-btn.primary {
+  background: var(--accent);
+  color: #0d1b2a;
+  border-color: var(--accent);
+}
+
+.retry-btn.primary:hover {
+  opacity: 0.85;
+}
+
+.retry-btn.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.retry-btn {
   padding: 0.45rem 1.5rem;
   border: 1px solid var(--border);
   background: var(--bg-card);

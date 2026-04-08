@@ -1,4 +1,5 @@
 mod docker;
+mod runtime;
 
 use bollard::Docker;
 use docker::DockerState;
@@ -95,6 +96,9 @@ pub fn run() {
             docker::read_container_file,
             docker::save_from_container,
             docker::import_to_container,
+            runtime_status,
+            runtime_start,
+            runtime_stop,
             open_log_window,
             open_file_explorer_window,
             get_home_dir,
@@ -338,4 +342,24 @@ fn pick_yaml_file(state: tauri::State<'_, BrowsingState>) -> Result<Option<Strin
         flag.store(false, Ordering::SeqCst);
     });
     result
+}
+
+// --- Runtime management ---
+
+#[tauri::command]
+fn runtime_status(app: tauri::AppHandle) -> Result<runtime::RuntimeStatus, String> {
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    Ok(runtime::detect_runtime(&resource_dir))
+}
+
+#[tauri::command]
+fn runtime_start(app: tauri::AppHandle) -> Result<String, String> {
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    runtime::start_builtin(&resource_dir)
+}
+
+#[tauri::command]
+fn runtime_stop(app: tauri::AppHandle) -> Result<String, String> {
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    runtime::stop_builtin(&resource_dir)
 }

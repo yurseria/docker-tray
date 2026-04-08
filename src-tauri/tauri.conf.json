@@ -44,7 +44,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "icons/tray-icon.png"
+      "icons/tray-icon.png",
+      "runtime/**/*"
     ],
     "macOS": {
       "minimumSystemVersion": "10.15"

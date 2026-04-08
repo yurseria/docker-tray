@@ -837,6 +837,7 @@ version = "0.1.0"
 dependencies = [
  "bollard",
  "chrono",
+ "dirs",
  "futures-util",
  "objc2",
  "objc2-app-kit",
