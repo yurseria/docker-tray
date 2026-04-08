@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{
     image::Image,
+    menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
@@ -106,11 +107,25 @@ pub fn run() {
                 .or_else(|| Image::from_path("icons/tray-icon.png").ok())
                 .expect("Failed to load tray icon");
 
+            let quit_item = MenuItemBuilder::with_id("quit", "Quit Docker Tray")
+                .build(app)
+                .expect("Failed to build quit menu item");
+            let tray_menu = MenuBuilder::new(app)
+                .item(&quit_item)
+                .build()
+                .expect("Failed to build tray menu");
+
             let _tray = TrayIconBuilder::with_id("docker-tray")
                 .icon(icon)
                 .icon_as_template(true)
+                .menu(&tray_menu)
                 .show_menu_on_left_click(false)
                 .tooltip("Docker Tray")
+                .on_menu_event(|app, event| {
+                    if event.id().as_ref() == "quit" {
+                        app.exit(0);
+                    }
+                })
                 .on_tray_icon_event(move |tray, event| {
                     if let TrayIconEvent::Click {
                         position,
