@@ -1,0 +1,307 @@
+mod docker;
+
+use bollard::Docker;
+use docker::DockerState;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::{
+    image::Image,
+    tray::{MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, WebviewUrl, WebviewWindowBuilder,
+};
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+#[cfg(target_os = "macos")]
+fn setup_macos_window(window: &tauri::WebviewWindow) {
+    use objc2_app_kit::{NSColor, NSWindow};
+
+    let ns_window = window.ns_window().expect("Failed to get NSWindow");
+    let ns_window: &NSWindow = unsafe { &*(ns_window as *const _ as *const NSWindow) };
+
+    ns_window.setOpaque(false);
+    ns_window.setBackgroundColor(Some(&NSColor::clearColor()));
+    ns_window.setHasShadow(true);
+
+    if let Some(content_view) = ns_window.contentView() {
+        content_view.setWantsLayer(true);
+        if let Some(layer) = content_view.layer() {
+            layer.setCornerRadius(12.0);
+            layer.setMasksToBounds(true);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_macos_accessory_app() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+
+    if let Some(mtm) = MainThreadMarker::new() {
+        let app = NSApplication::sharedApplication(mtm);
+        app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let docker_client = Docker::connect_with_local_defaults()
+        .or_else(|_| Docker::connect_with_socket_defaults())
+        .expect("Failed to initialize Docker client");
+
+    let last_focus_lost = Arc::new(AtomicU64::new(0));
+    let last_focus_lost_for_tray = last_focus_lost.clone();
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .manage(DockerState {
+            client: docker_client,
+        })
+        .invoke_handler(tauri::generate_handler![
+            docker::list_containers,
+            docker::list_images,
+            docker::list_volumes,
+            docker::list_networks,
+            docker::start_container,
+            docker::stop_container,
+            docker::restart_container,
+            docker::get_container_logs,
+            docker::docker_ping,
+            docker::remove_container,
+            docker::remove_image,
+            docker::remove_volume,
+            docker::remove_network,
+            docker::pull_image,
+            docker::create_container,
+            docker::compose_up,
+            docker::get_container_mounts,
+            docker::open_in_finder,
+            docker::detect_terminal,
+            docker::open_terminal,
+            docker::list_container_files,
+            docker::read_container_file,
+            docker::save_from_container,
+            docker::import_to_container,
+            open_log_window,
+            open_file_explorer_window,
+            get_home_dir,
+            pick_file_for_import,
+            pick_yaml_file,
+        ])
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            set_macos_accessory_app();
+
+            let icon = app
+                .path()
+                .resource_dir()
+                .ok()
+                .and_then(|dir| Image::from_path(dir.join("icons/tray-icon.png")).ok())
+                .or_else(|| Image::from_path("icons/tray-icon.png").ok())
+                .expect("Failed to load tray icon");
+
+            let _tray = TrayIconBuilder::with_id("docker-tray")
+                .icon(icon)
+                .icon_as_template(true)
+                .show_menu_on_left_click(false)
+                .tooltip("Docker Tray")
+                .on_tray_icon_event(move |tray, event| {
+                    if let TrayIconEvent::Click {
+                        position,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        let window = match app.get_webview_window("main") {
+                            Some(w) => w,
+                            None => WebviewWindowBuilder::new(
+                                app,
+                                "main",
+                                WebviewUrl::default(),
+                            )
+                            .title("Docker Tray")
+                            .inner_size(420.0, 560.0)
+                            .decorations(false)
+                            .skip_taskbar(true)
+                            .always_on_top(true)
+                            .transparent(true)
+                            .visible(false)
+                            .build()
+                            .expect("Failed to create window"),
+                        };
+
+                        // Record that a tray click happened
+                        last_focus_lost_for_tray.store(now_ms(), Ordering::SeqCst);
+
+                        if window.is_visible().unwrap_or(false) {
+                            let _ = window.hide();
+                            return;
+                        }
+
+                        {
+                            let scale = window.scale_factor().unwrap_or(1.0);
+                            let window_size = window
+                                .outer_size()
+                                .unwrap_or(tauri::PhysicalSize::new(420, 560));
+                            let w = window_size.width as f64 / scale;
+                            let h = window_size.height as f64 / scale;
+
+                            let x = position.x - (w / 2.0);
+                            let y = position.y - h;
+
+                            let _ = window
+                                .set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "macos")]
+                setup_macos_window(&window);
+                let _ = window.hide();
+            }
+
+            Ok(())
+        })
+        .on_window_event(move |window, event| {
+            if let tauri::WindowEvent::Focused(false) = event {
+                if window.label() == "main" {
+                    let w = window.clone();
+                    let ts = last_focus_lost.clone();
+                    // Delay hide to let tray click events arrive first
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(150));
+                        let clicked_at = ts.load(Ordering::SeqCst);
+                        let elapsed = now_ms() - clicked_at;
+                        // If a tray click happened within 150ms, skip hide
+                        if elapsed < 200 {
+                            return;
+                        }
+                        let _ = w.hide();
+                    });
+                }
+            }
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+
+#[tauri::command]
+async fn open_log_window(
+    app: tauri::AppHandle,
+    container_id: String,
+    container_name: String,
+) -> Result<(), String> {
+    let label = format!("log-{}", container_id);
+
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let url = format!("index.html#/logs/{}/{}", container_id, container_name);
+
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
+        .title(format!("Logs: {}", container_name))
+        .inner_size(960.0, 600.0)
+        .min_inner_size(600.0, 400.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_file_explorer_window(
+    app: tauri::AppHandle,
+    container_id: String,
+    container_name: String,
+) -> Result<(), String> {
+    let label = format!("files-{}", container_id);
+
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let url = format!(
+        "index.html#/files/{}/{}",
+        container_id, container_name
+    );
+
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
+        .title(format!("Files: {}", container_name))
+        .inner_size(800.0, 600.0)
+        .min_inner_size(500.0, 400.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_home_dir() -> Result<String, String> {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| "Cannot determine home directory".to_string())
+}
+
+#[tauri::command]
+fn pick_file_for_import() -> Result<Option<String>, String> {
+    use std::process::Command;
+    // Use osascript to show a native file picker
+    let output = Command::new("osascript")
+        .args([
+            "-e",
+            r#"set f to choose file with prompt "Select file to import"
+            return POSIX path of f"#,
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        // User cancelled
+        return Ok(None);
+    }
+
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(path))
+    }
+}
+
+#[tauri::command]
+fn pick_yaml_file() -> Result<Option<String>, String> {
+    use std::process::Command;
+    let output = Command::new("osascript")
+        .args([
+            "-e",
+            r#"set f to choose file with prompt "Select docker-compose file" of type {"yaml", "yml", "public.yaml", "public.plain-text"}
+            return POSIX path of f"#,
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(path))
+    }
+}
