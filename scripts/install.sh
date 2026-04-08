@@ -76,16 +76,16 @@ find_asset() {
 # ── Download & install ──
 
 install_macos() {
-  local tmpdir
-  tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  TMPDIR_CLEANUP="$(mktemp -d)"
+  local tmpdir="$TMPDIR_CLEANUP"
+  trap 'rm -rf "$TMPDIR_CLEANUP"' EXIT
 
   info "Downloading $ASSET_NAME..."
   curl -fSL --progress-bar -o "$tmpdir/$ASSET_NAME" "$ASSET_URL"
 
   info "Mounting disk image..."
   local mount_point
-  mount_point="$(hdiutil attach "$tmpdir/$ASSET_NAME" -nobrowse -noautoopen | sed -n 's/.*\(\/Volumes\/.*\)/\1/p' | tail -1)"
+  mount_point="$(hdiutil attach "$tmpdir/$ASSET_NAME" -nobrowse -noautoopen 2>/dev/null | sed -n 's/.*\(\/Volumes\/.*\)/\1/p' | tail -1)"
 
   local app
   app="$(find "$mount_point" -maxdepth 1 -name '*.app' | head -1)"
