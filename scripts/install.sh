@@ -85,7 +85,7 @@ install_macos() {
 
   info "Mounting disk image..."
   local mount_point
-  mount_point="$(hdiutil attach "$tmpdir/$ASSET_NAME" -nobrowse -noautoopen | tail -1 | awk '{print $NF}')"
+  mount_point="$(hdiutil attach "$tmpdir/$ASSET_NAME" -nobrowse -noautoopen | sed -n 's/.*\(\/Volumes\/.*\)/\1/p' | tail -1)"
 
   local app
   app="$(find "$mount_point" -maxdepth 1 -name '*.app' | head -1)"
