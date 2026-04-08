@@ -39,20 +39,8 @@
 
 ## Install
 
-### Script install (recommended)
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yurseria/docker-tray/main/scripts/install.sh | bash
-```
-
-Automatically removes Gatekeeper quarantine attributes.
-
-### Manual install
-
-If you download the `.dmg` from [Releases](https://github.com/yurseria/docker-tray/releases/latest), the app is unsigned. After installation, run:
-
-```bash
-xattr -rd com.apple.quarantine /Applications/Docker\ Tray.app
 ```
 
 ## Tech Stack
