@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+out/
+dist/
+*.tsbuildinfo
+
+# Tauri build
+packages/tauri/src-tauri/target/
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+
+# IDE
+.vscode-test
+
+# Turbo
+.turbo/
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Claude Code
+.claude
+
+# Temp / Tool
+.tmp
+.zed
+.superset
+.bkit
