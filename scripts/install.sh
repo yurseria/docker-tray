@@ -119,6 +119,10 @@ main() {
 
   echo
   info "Done! Enjoy $APP_NAME."
+
+  echo
+  echo "Open from Applications or run:"
+  echo "open -a '${APP_NAME}'"
 }
 
 main
