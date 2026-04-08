@@ -1,0 +1,153 @@
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
+interface SettingsData {
+  terminal: string;
+  shell: string;
+  refreshInterval: number;
+  uiScale: number;
+}
+
+const STORAGE_KEY = "docker-tray-settings";
+const DEFAULTS: SettingsData = {
+  terminal: "auto",
+  shell: "/bin/sh",
+  refreshInterval: 5,
+  uiScale: 1.0,
+};
+
+function loadSettings(): SettingsData {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return { ...DEFAULTS, ...JSON.parse(saved) };
+  } catch {
+    // ignore
+  }
+  return DEFAULTS;
+}
+
+function saveSettings(settings: SettingsData) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+}
+
+export function applyScale(scale: number) {
+  const root = document.documentElement;
+  root.style.fontSize = `${scale * 13}px`;
+}
+
+interface Props {
+  onClose: () => void;
+}
+
+export function Settings({ onClose }: Props) {
+  const [settings, setSettings] = useState<SettingsData>(loadSettings);
+  const [detectedTerminal, setDetectedTerminal] = useState("...");
+
+  useEffect(() => {
+    invoke<string>("detect_terminal").then((t) => {
+      const names: Record<string, string> = {
+        ghostty: "Ghostty",
+        iterm: "iTerm2",
+        terminal: "Terminal.app",
+      };
+      setDetectedTerminal(names[t] || t);
+    });
+  }, []);
+
+  const update = (partial: Partial<SettingsData>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...partial };
+      saveSettings(next);
+      if (partial.uiScale !== undefined) {
+        applyScale(partial.uiScale);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className="settings">
+      <div className="settings-header">
+        <span className="settings-title">Settings</span>
+        <button className="action-btn" onClick={onClose} title="Close">
+          <i className="ri-close-line" />
+        </button>
+      </div>
+
+      <div className="settings-content">
+        <div className="settings-group">
+          <label className="settings-label">UI Scale</label>
+          <div className="scale-options">
+            {[
+              { value: 0.9, label: "S" },
+              { value: 1.0, label: "M" },
+              { value: 1.1, label: "L" },
+              { value: 1.2, label: "XL" },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                className={`scale-btn ${settings.uiScale === opt.value ? "active" : ""}`}
+                onClick={() => update({ uiScale: opt.value })}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">Terminal</label>
+          <select
+            className="settings-select"
+            value={settings.terminal}
+            onChange={(e) => update({ terminal: e.target.value })}
+          >
+            <option value="auto">Auto-detect ({detectedTerminal})</option>
+            <option value="ghostty">Ghostty</option>
+            <option value="iterm">iTerm2</option>
+            <option value="terminal">Terminal.app</option>
+          </select>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">Shell</label>
+          <select
+            className="settings-select"
+            value={settings.shell}
+            onChange={(e) => update({ shell: e.target.value })}
+          >
+            <option value="/bin/sh">/bin/sh</option>
+            <option value="/bin/bash">/bin/bash</option>
+            <option value="/bin/zsh">/bin/zsh</option>
+          </select>
+          <span className="settings-hint">Shell used for docker exec</span>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">Refresh interval</label>
+          <select
+            className="settings-select"
+            value={settings.refreshInterval}
+            onChange={(e) =>
+              update({ refreshInterval: Number(e.target.value) })
+            }
+          >
+            <option value={2}>2 seconds</option>
+            <option value={5}>5 seconds</option>
+            <option value={10}>10 seconds</option>
+            <option value={30}>30 seconds</option>
+          </select>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">About</label>
+          <span className="settings-hint">Docker Tray v0.1.0</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function getSettings(): SettingsData {
+  return loadSettings();
+}

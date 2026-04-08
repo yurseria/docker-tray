@@ -1,0 +1,93 @@
+import { useState } from "react";
+import type { ImageInfo } from "../types";
+import { ContextMenu, type MenuItem } from "./ContextMenu";
+
+interface Props {
+  images: ImageInfo[];
+  onRemove: (id: string) => Promise<void>;
+  onCreateContainer?: (image: string) => void;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDate(ts: number): string {
+  return new Date(ts * 1000).toLocaleDateString();
+}
+
+export function ImagesTab({ images, onRemove, onCreateContainer }: Props) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+
+  if (images.length === 0) {
+    return <div className="empty">No images found</div>;
+  }
+
+  return (
+    <div className="tab-content" onContextMenu={(e) => e.preventDefault()}>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {images.map((img) => (
+        <div
+          key={img.id}
+          className={`list-item clickable ${expanded === img.id ? "expanded" : ""}`}
+          onClick={() => setExpanded(expanded === img.id ? null : img.id)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMenu({
+              x: e.clientX, y: e.clientY,
+              items: [
+                ...(onCreateContainer ? [{ label: "Create Container", onClick: () => onCreateContainer(img.repo_tags[0] || img.id) }] : []),
+                { label: "Remove", danger: true, confirm: `Remove image "${img.repo_tags[0] || img.id}"?`, onClick: () => onRemove(img.id) },
+              ],
+            });
+          }}
+        >
+          <div className="item-main">
+            <div className="item-info">
+              <span className="item-name">
+                {img.repo_tags[0] || `<none>:${img.id}`}
+              </span>
+              <span className="item-detail">{img.id}</span>
+            </div>
+            <div className="item-badges">
+              <span className="size-badge">{formatSize(img.size)}</span>
+            </div>
+          </div>
+          <div className="item-meta">
+            <span>Created: {formatDate(img.created)}</span>
+            {img.repo_tags.length > 1 && (
+              <span>+{img.repo_tags.length - 1} tags</span>
+            )}
+          </div>
+          {expanded === img.id && (
+            <div className="container-detail">
+              <div className="detail-row">
+                <span className="detail-label">ID</span>
+                <span className="detail-value">{img.id}</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">Size</span>
+                <span className="detail-value">{formatSize(img.size)}</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">Created</span>
+                <span className="detail-value">{new Date(img.created * 1000).toLocaleString()}</span>
+              </div>
+              {img.repo_tags.length > 0 && (
+                <div className="detail-row">
+                  <span className="detail-label">Tags</span>
+                  <span className="detail-value">{img.repo_tags.join(", ")}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
