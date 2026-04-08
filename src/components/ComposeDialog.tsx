@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 interface Props {
   onCompose: (filePath: string) => Promise<string>;
@@ -7,6 +8,11 @@ interface Props {
 }
 
 export function ComposeDialog({ onCompose, onClose }: Props) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
   const [filePath, setFilePath] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -14,9 +20,15 @@ export function ComposeDialog({ onCompose, onClose }: Props) {
   const handleBrowse = async () => {
     try {
       const path = await invoke<string | null>("pick_yaml_file");
+      // Re-show window after osascript file picker steals focus
+      const win = getCurrentWebviewWindow();
+      await win.show();
+      await win.setFocus();
       if (path) setFilePath(path);
     } catch {
-      // user cancelled
+      const win = getCurrentWebviewWindow();
+      await win.show();
+      await win.setFocus();
     }
   };
 
@@ -35,7 +47,7 @@ export function ComposeDialog({ onCompose, onClose }: Props) {
   };
 
   return (
-    <div className="confirm-overlay" onClick={onClose}>
+    <div className="confirm-overlay">
       <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
         <h3 className="modal-title">Compose Up</h3>
         <div className="modal-field">

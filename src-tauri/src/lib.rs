@@ -2,7 +2,7 @@ mod docker;
 
 use bollard::Docker;
 use docker::DockerState;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{
@@ -11,6 +11,8 @@ use tauri::{
     tray::{MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
+
+pub struct BrowsingState(pub Arc<AtomicBool>);
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -58,12 +60,15 @@ pub fn run() {
 
     let last_focus_lost = Arc::new(AtomicU64::new(0));
     let last_focus_lost_for_tray = last_focus_lost.clone();
+    let browsing = Arc::new(AtomicBool::new(false));
+    let browsing_for_event = browsing.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(DockerState {
             client: docker_client,
         })
+        .manage(BrowsingState(browsing))
         .invoke_handler(tauri::generate_handler![
             docker::list_containers,
             docker::list_images,
@@ -193,9 +198,14 @@ pub fn run() {
                 if window.label() == "main" {
                     let w = window.clone();
                     let ts = last_focus_lost.clone();
+                    let br = browsing_for_event.clone();
                     // Delay hide to let tray click events arrive first
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_millis(150));
+                        // Skip hide if file picker is open
+                        if br.load(Ordering::SeqCst) {
+                            return;
+                        }
                         let clicked_at = ts.load(Ordering::SeqCst);
                         let elapsed = now_ms() - clicked_at;
                         // If a tray click happened within 150ms, skip hide
@@ -272,51 +282,59 @@ fn get_home_dir() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn pick_file_for_import() -> Result<Option<String>, String> {
+fn pick_file_for_import(state: tauri::State<'_, BrowsingState>) -> Result<Option<String>, String> {
     use std::process::Command;
-    // Use osascript to show a native file picker
-    let output = Command::new("osascript")
-        .args([
-            "-e",
-            r#"set f to choose file with prompt "Select file to import"
-            return POSIX path of f"#,
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
+    state.0.store(true, Ordering::SeqCst);
+    let result = (|| {
+        let output = Command::new("osascript")
+            .args([
+                "-e",
+                r#"set f to choose file with prompt "Select file to import"
+                return POSIX path of f"#,
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
 
-    if !output.status.success() {
-        // User cancelled
-        return Ok(None);
-    }
+        if !output.status.success() {
+            return Ok(None);
+        }
 
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(path))
-    }
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() { Ok(None) } else { Ok(Some(path)) }
+    })();
+    let flag = state.0.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        flag.store(false, Ordering::SeqCst);
+    });
+    result
 }
 
 #[tauri::command]
-fn pick_yaml_file() -> Result<Option<String>, String> {
+fn pick_yaml_file(state: tauri::State<'_, BrowsingState>) -> Result<Option<String>, String> {
     use std::process::Command;
-    let output = Command::new("osascript")
-        .args([
-            "-e",
-            r#"set f to choose file with prompt "Select docker-compose file" of type {"yaml", "yml", "public.yaml", "public.plain-text"}
-            return POSIX path of f"#,
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
+    state.0.store(true, Ordering::SeqCst);
+    let result = (|| {
+        let output = Command::new("osascript")
+            .args([
+                "-e",
+                r#"set f to choose file with prompt "Select docker-compose file" of type {"yaml", "yml", "public.yaml", "public.plain-text"}
+                return POSIX path of f"#,
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
 
-    if !output.status.success() {
-        return Ok(None);
-    }
+        if !output.status.success() {
+            return Ok(None);
+        }
 
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(path))
-    }
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() { Ok(None) } else { Ok(Some(path)) }
+    })();
+    let flag = state.0.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        flag.store(false, Ordering::SeqCst);
+    });
+    result
 }

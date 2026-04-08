@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { ImageInfo } from "../types";
 
 interface Props {
   defaultImage?: string;
+  images: ImageInfo[];
   onSubmit: (input: {
     name?: string;
     image: string;
@@ -13,7 +15,12 @@ interface Props {
   onClose: () => void;
 }
 
-export function CreateContainerDialog({ defaultImage, onSubmit, onClose }: Props) {
+export function CreateContainerDialog({ defaultImage, images, onSubmit, onClose }: Props) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
   const [name, setName] = useState("");
   const [image, setImage] = useState(defaultImage || "");
   const [portsStr, setPortsStr] = useState("");
@@ -69,12 +76,12 @@ export function CreateContainerDialog({ defaultImage, onSubmit, onClose }: Props
   };
 
   return (
-    <div className="confirm-overlay" onClick={onClose}>
+    <div className="confirm-overlay">
       <div className="modal-dialog wide" onClick={(e) => e.stopPropagation()}>
         <h3 className="modal-title">Create Container</h3>
 
         <div className="modal-field">
-          <label className="modal-label">Name (optional)</label>
+          <label className="modal-label">Name</label>
           <input
             className="modal-input"
             placeholder="my-container"
@@ -85,13 +92,27 @@ export function CreateContainerDialog({ defaultImage, onSubmit, onClose }: Props
         </div>
 
         <div className="modal-field">
-          <label className="modal-label">Image</label>
-          <input
-            className="modal-input"
-            placeholder="nginx:latest"
-            value={image}
-            onChange={(e) => setImage(e.target.value)}
-          />
+          <label className="modal-label">Image <span className="modal-required">*</span></label>
+          {images.length > 0 ? (
+            <select
+              className="modal-select"
+              value={image}
+              onChange={(e) => setImage(e.target.value)}
+            >
+              <option value="">Select an image...</option>
+              {images.map((img) => {
+                const tag = img.repo_tags[0] || img.id;
+                return <option key={img.id} value={tag}>{tag}</option>;
+              })}
+            </select>
+          ) : (
+            <input
+              className="modal-input"
+              placeholder="nginx:latest"
+              value={image}
+              onChange={(e) => setImage(e.target.value)}
+            />
+          )}
         </div>
 
         <div className="modal-field">

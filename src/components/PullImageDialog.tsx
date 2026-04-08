@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface Props {
   onPull: (image: string) => Promise<void>;
@@ -6,6 +6,11 @@ interface Props {
 }
 
 export function PullImageDialog({ onPull, onClose }: Props) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
   const [image, setImage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +30,7 @@ export function PullImageDialog({ onPull, onClose }: Props) {
   };
 
   return (
-    <div className="confirm-overlay" onClick={onClose}>
+    <div className="confirm-overlay">
       <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
         <h3 className="modal-title">Pull Image</h3>
         <div className="modal-field">

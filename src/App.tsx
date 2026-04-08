@@ -80,7 +80,7 @@ function App() {
         </button>
         <button
           className="settings-btn"
-          onClick={() => setDialog("create")}
+          onClick={() => { fetchImages(); setDialog("create"); }}
           title="Create Container"
         >
           <i className="ri-add-box-line" />
@@ -156,6 +156,7 @@ function App() {
       {dialog === "create" && (
         <CreateContainerDialog
           defaultImage={createImage}
+          images={docker.images}
           onSubmit={docker.createContainer}
           onClose={() => { setDialog(null); setCreateImage(undefined); }}
         />

@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 interface Props {
   message: string;
   onConfirm: () => void;
@@ -5,9 +7,15 @@ interface Props {
 }
 
 export function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onCancel]);
+
   return (
-    <div className="confirm-overlay" onClick={onCancel}>
-      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="confirm-overlay">
+      <div className="confirm-dialog">
         <p className="confirm-message">{message}</p>
         <div className="confirm-actions">
           <button className="confirm-btn cancel" onClick={onCancel}>
