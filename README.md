@@ -39,8 +39,20 @@
 
 ## 설치
 
+### 스크립트 설치 (권장)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yurseria/docker-tray/main/scripts/install.sh | bash
+```
+
+Gatekeeper quarantine 속성을 자동으로 제거합니다.
+
+### 수동 설치
+
+[Releases](https://github.com/yurseria/docker-tray/releases/latest)에서 `.dmg`를 다운로드한 경우, 서명되지 않은 앱이므로 설치 후 아래 명령어를 실행해야 합니다:
+
+```bash
+xattr -rd com.apple.quarantine /Applications/Docker\ Tray.app
 ```
 
 ## 기술 스택
