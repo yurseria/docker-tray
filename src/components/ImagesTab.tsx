@@ -4,6 +4,7 @@ import { ContextMenu, type MenuItem } from "./ContextMenu";
 
 interface Props {
   images: ImageInfo[];
+  search: string;
   onRemove: (id: string) => Promise<void>;
   onCreateContainer?: (image: string) => void;
 }
@@ -19,18 +20,24 @@ function formatDate(ts: number): string {
   return new Date(ts * 1000).toLocaleDateString();
 }
 
-export function ImagesTab({ images, onRemove, onCreateContainer }: Props) {
+export function ImagesTab({ images, search, onRemove, onCreateContainer }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
-  if (images.length === 0) {
-    return <div className="empty">No images found</div>;
+  const filtered = images.filter((img) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return img.repo_tags.some((t) => t.toLowerCase().includes(q)) || img.id.toLowerCase().includes(q);
+  });
+
+  if (filtered.length === 0) {
+    return <div className="empty">{search ? "No matching images" : "No images found"}</div>;
   }
 
   return (
     <div className="tab-content" onContextMenu={(e) => e.preventDefault()}>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-      {images.map((img) => (
+      {filtered.map((img) => (
         <div
           key={img.id}
           className={`list-item clickable ${expanded === img.id ? "expanded" : ""}`}

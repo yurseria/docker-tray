@@ -86,6 +86,7 @@ pub fn run() {
             docker::pull_image,
             docker::create_container,
             docker::compose_up,
+            docker::get_container_env,
             docker::get_container_mounts,
             docker::open_in_finder,
             docker::detect_terminal,

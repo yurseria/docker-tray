@@ -4,21 +4,28 @@ import { ContextMenu, type MenuItem } from "./ContextMenu";
 
 interface Props {
   networks: NetworkInfo[];
+  search: string;
   onRemove: (id: string) => Promise<void>;
 }
 
-export function NetworksTab({ networks, onRemove }: Props) {
+export function NetworksTab({ networks, search, onRemove }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
-  if (networks.length === 0) {
-    return <div className="empty">No networks found</div>;
+  const filtered = networks.filter((n) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return n.name.toLowerCase().includes(q) || n.driver.toLowerCase().includes(q);
+  });
+
+  if (filtered.length === 0) {
+    return <div className="empty">{search ? "No matching networks" : "No networks found"}</div>;
   }
 
   return (
     <div className="tab-content" onContextMenu={(e) => e.preventDefault()}>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-      {networks.map((n) => (
+      {filtered.map((n) => (
         <div
           key={n.id}
           className={`list-item clickable ${expanded === n.id ? "expanded" : ""}`}

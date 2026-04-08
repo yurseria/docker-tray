@@ -202,6 +202,13 @@ export function useDocker() {
     [fetchContainers]
   );
 
+  const getContainerEnv = useCallback(
+    async (id: string): Promise<string[]> => {
+      return invoke<string[]>("get_container_env", { id });
+    },
+    []
+  );
+
   const getContainerLogs = useCallback(
     async (id: string, tail?: string): Promise<string[]> => {
       return invoke<string[]>("get_container_logs", { id, tail });
@@ -232,6 +239,7 @@ export function useDocker() {
     pullImage,
     createContainer,
     composeUp,
+    getContainerEnv,
     getContainerLogs,
   };
 }

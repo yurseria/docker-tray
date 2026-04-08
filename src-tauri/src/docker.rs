@@ -297,6 +297,25 @@ pub async fn docker_ping(docker: State<'_, DockerState>) -> Result<bool, String>
         .map_err(|e| e.to_string())
 }
 
+// --- Container Env Vars ---
+
+#[tauri::command]
+pub async fn get_container_env(
+    docker: State<'_, DockerState>,
+    id: String,
+) -> Result<Vec<String>, String> {
+    let info = docker
+        .client
+        .inspect_container(&id, None::<InspectContainerOptions>)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(info
+        .config
+        .and_then(|c| c.env)
+        .unwrap_or_default())
+}
+
 // --- Remove ---
 
 #[tauri::command]

@@ -25,6 +25,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [dialog, setDialog] = useState<DialogType>(null);
   const [createImage, setCreateImage] = useState<string | undefined>();
+  const [search, setSearch] = useState("");
 
   const docker = useDocker();
   const { fetchContainers, fetchImages, fetchVolumes, fetchNetworks, ping } = docker;
@@ -118,6 +119,21 @@ function App() {
             ))}
           </nav>
 
+          <div className="search-bar">
+            <i className="ri-search-line search-icon" />
+            <input
+              className="search-input"
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button className="search-clear" onClick={() => setSearch("")}>
+                <i className="ri-close-line" />
+              </button>
+            )}
+          </div>
+
           <div className="content">
             {docker.error && (
               <div className="error-banner">
@@ -128,24 +144,27 @@ function App() {
             {activeTab === "containers" && (
               <ContainersTab
                 groups={docker.containers}
+                search={search}
                 onStart={docker.startContainer}
                 onStop={docker.stopContainer}
                 onRestart={docker.restartContainer}
                 onRemove={docker.removeContainer}
+                getEnv={docker.getContainerEnv}
               />
             )}
             {activeTab === "images" && (
               <ImagesTab
                 images={docker.images}
+                search={search}
                 onRemove={docker.removeImage}
                 onCreateContainer={(img) => { setCreateImage(img); setDialog("create"); }}
               />
             )}
             {activeTab === "volumes" && (
-              <VolumesTab volumes={docker.volumes} onRemove={docker.removeVolume} />
+              <VolumesTab volumes={docker.volumes} search={search} onRemove={docker.removeVolume} />
             )}
             {activeTab === "networks" && (
-              <NetworksTab networks={docker.networks} onRemove={docker.removeNetwork} />
+              <NetworksTab networks={docker.networks} search={search} onRemove={docker.removeNetwork} />
             )}
           </div>
         </>

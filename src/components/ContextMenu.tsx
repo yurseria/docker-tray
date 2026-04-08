@@ -18,6 +18,19 @@ interface Props {
 export function ContextMenu({ x, y, items, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [confirmItem, setConfirmItem] = useState<MenuItem | null>(null);
+  const [pos, setPos] = useState({ top: y, left: x });
+
+  useEffect(() => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      const maxY = window.innerHeight - rect.height - 4;
+      const maxX = window.innerWidth - rect.width - 4;
+      setPos({
+        top: Math.min(y, Math.max(0, maxY)),
+        left: Math.min(x, Math.max(0, maxX)),
+      });
+    }
+  }, [x, y]);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -43,7 +56,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
   }
 
   return (
-    <div ref={ref} className="context-menu" style={{ top: y, left: x }}>
+    <div ref={ref} className="context-menu" style={{ top: pos.top, left: pos.left }}>
       {items.map((item, i) => (
         <button
           key={i}

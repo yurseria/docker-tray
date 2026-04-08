@@ -4,21 +4,28 @@ import { ContextMenu, type MenuItem } from "./ContextMenu";
 
 interface Props {
   volumes: VolumeInfo[];
+  search: string;
   onRemove: (name: string) => Promise<void>;
 }
 
-export function VolumesTab({ volumes, onRemove }: Props) {
+export function VolumesTab({ volumes, search, onRemove }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
-  if (volumes.length === 0) {
-    return <div className="empty">No volumes found</div>;
+  const filtered = volumes.filter((v) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return v.name.toLowerCase().includes(q) || v.driver.toLowerCase().includes(q);
+  });
+
+  if (filtered.length === 0) {
+    return <div className="empty">{search ? "No matching volumes" : "No volumes found"}</div>;
   }
 
   return (
     <div className="tab-content" onContextMenu={(e) => e.preventDefault()}>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-      {volumes.map((v) => (
+      {filtered.map((v) => (
         <div
           key={v.name}
           className={`list-item clickable ${expanded === v.name ? "expanded" : ""}`}
