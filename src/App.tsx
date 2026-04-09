@@ -52,20 +52,40 @@ function App() {
   }, [fetchCurrentTab]);
 
   const [runtimeLoading, setRuntimeLoading] = useState(false);
+  const [runtimeStatus, setRuntimeStatus] = useState("");
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   const startRuntime = async () => {
     setRuntimeLoading(true);
     setRuntimeError(null);
+    setRuntimeStatus("Initializing runtime...");
     try {
+      const steps = [
+        { msg: "Starting VM...", delay: 3000 },
+        { msg: "Downloading VM image (first run only)...", delay: 8000 },
+        { msg: "Configuring Docker engine...", delay: 5000 },
+        { msg: "Almost ready...", delay: 0 },
+      ];
+      let stepIndex = 0;
+      const timer = setInterval(() => {
+        stepIndex++;
+        if (stepIndex < steps.length) {
+          setRuntimeStatus(steps[stepIndex].msg);
+        }
+      }, steps[stepIndex]?.delay || 5000);
+
+      setRuntimeStatus(steps[0].msg);
       await invoke("runtime_start");
-      // Wait a moment for socket to be ready
+      clearInterval(timer);
+
+      setRuntimeStatus("Connecting...");
       await new Promise((r) => setTimeout(r, 2000));
       await ping();
     } catch (e) {
       setRuntimeError(String(e));
     } finally {
       setRuntimeLoading(false);
+      setRuntimeStatus("");
     }
   };
 
@@ -73,28 +93,30 @@ function App() {
     return (
       <div className="app">
         <div className="disconnected">
-          <i className="ri-server-line disconnected-icon" />
-          <div className="disconnected-text">Docker not available</div>
-          <div className="disconnected-hint">
-            No Docker runtime detected
-          </div>
+          {runtimeLoading ? (
+            <>
+              <div className="runtime-spinner" />
+              <div className="disconnected-text">Starting Runtime</div>
+              <div className="disconnected-hint">{runtimeStatus}</div>
+            </>
+          ) : (
+            <>
+              <i className="ri-server-line disconnected-icon" />
+              <div className="disconnected-text">Docker not available</div>
+              <div className="disconnected-hint">No Docker runtime detected</div>
+            </>
+          )}
           {runtimeError && <div className="disconnected-error">{runtimeError}</div>}
-          <div className="disconnected-actions">
-            <button
-              className="retry-btn primary"
-              onClick={startRuntime}
-              disabled={runtimeLoading}
-            >
-              {runtimeLoading ? (
-                <><span className="loading-indicator" /> Starting runtime...</>
-              ) : (
-                <><i className="ri-play-fill" /> Start Built-in Runtime</>
-              )}
-            </button>
-            <button className="retry-btn" onClick={ping}>
-              <i className="ri-refresh-line" /> Retry Connection
-            </button>
-          </div>
+          {!runtimeLoading && (
+            <div className="disconnected-actions">
+              <button className="retry-btn primary" onClick={startRuntime}>
+                <i className="ri-play-fill" /> Start Built-in Runtime
+              </button>
+              <button className="retry-btn" onClick={ping}>
+                <i className="ri-refresh-line" /> Retry Connection
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

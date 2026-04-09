@@ -828,6 +828,16 @@ body {
   color: var(--text-muted);
 }
 
+.runtime-spinner {
+  width: 3rem;
+  height: 3rem;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 0.8rem;
+}
+
 .disconnected-error {
   font-size: 0.8rem;
   color: var(--red);
