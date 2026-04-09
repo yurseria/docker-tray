@@ -140,6 +140,25 @@ pub fn connect_docker() -> Option<Docker> {
     None
 }
 
+/// Extract a clean error message from Colima's verbose log output
+fn extract_error(full: &str) -> String {
+    let error_lines: Vec<&str> = full
+        .lines()
+        .filter(|l| l.contains("level=fatal") || l.contains("level=error"))
+        .collect();
+    let raw = if error_lines.is_empty() {
+        full.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("Unknown error").to_string()
+    } else {
+        error_lines.last().unwrap_or(&"Unknown error").to_string()
+    };
+    // Extract just the msg="..." part if present
+    if let Some(idx) = raw.find("msg=") {
+        raw[idx + 4..].trim_matches('"').to_string()
+    } else {
+        raw
+    }
+}
+
 /// Start the bundled Colima runtime
 pub fn start_builtin(resource_dir: &PathBuf) -> Result<String, String> {
     let colima = bundled_colima(resource_dir)
@@ -153,14 +172,16 @@ pub fn start_builtin(resource_dir: &PathBuf) -> Result<String, String> {
         .output()
         .map_err(|e| e.to_string())?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
     if !output.status.success() {
-        return Err(format!("{}{}", stdout, stderr));
+        let full = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(extract_error(&full));
     }
 
-    Ok(format!("{}{}", stdout, stderr))
+    Ok("Runtime started".to_string())
 }
 
 /// Stop the bundled Colima runtime
@@ -176,12 +197,14 @@ pub fn stop_builtin(resource_dir: &PathBuf) -> Result<String, String> {
         .output()
         .map_err(|e| e.to_string())?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
     if !output.status.success() {
-        return Err(format!("{}{}", stdout, stderr));
+        let full = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(extract_error(&full));
     }
 
-    Ok(format!("{}{}", stdout, stderr))
+    Ok("Runtime stopped".to_string())
 }
