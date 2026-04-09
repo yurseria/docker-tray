@@ -1,3 +1,4 @@
+use bollard::Docker;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::process::Command;
@@ -40,11 +41,12 @@ fn colima_env(resource_dir: &PathBuf) -> Vec<(String, String)> {
     let lima_dir = resource_dir.join("runtime/lima");
     let mut env = vec![];
 
-    // Colima needs to find limactl
+    // Colima needs to find limactl and docker
     let path = format!(
-        "{}:{}:/usr/local/bin:/usr/bin:/bin",
+        "{}:{}:{}:/usr/local/bin:/usr/bin:/bin",
         lima_dir.join("bin").display(),
         resource_dir.join("runtime/colima/bin").display(),
+        resource_dir.join("runtime/docker/bin").display(),
     );
     env.push(("PATH".to_string(), path));
 
@@ -112,6 +114,30 @@ fn is_colima_running(resource_dir: &PathBuf) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+/// Get the Colima docker socket path
+pub fn colima_socket_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".colima/default/docker.sock")
+}
+
+/// Try to connect to Docker, checking Colima socket as fallback
+pub fn connect_docker() -> Option<Docker> {
+    // Try default socket first
+    if let Ok(client) = Docker::connect_with_local_defaults() {
+        return Some(client);
+    }
+    // Try Colima socket
+    let socket = colima_socket_path();
+    if socket.exists() {
+        let url = format!("unix://{}", socket.display());
+        if let Ok(client) = Docker::connect_with_unix(&url, 120, bollard::API_DEFAULT_VERSION) {
+            return Some(client);
+        }
+    }
+    None
 }
 
 /// Start the bundled Colima runtime

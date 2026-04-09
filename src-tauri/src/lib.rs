@@ -353,9 +353,18 @@ fn runtime_status(app: tauri::AppHandle) -> Result<runtime::RuntimeStatus, Strin
 }
 
 #[tauri::command]
-fn runtime_start(app: tauri::AppHandle) -> Result<String, String> {
+fn runtime_start(app: tauri::AppHandle, docker: tauri::State<'_, DockerState>) -> Result<String, String> {
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
-    runtime::start_builtin(&resource_dir)
+    let result = runtime::start_builtin(&resource_dir)?;
+
+    // Reconnect Docker client after runtime starts
+    if let Some(client) = runtime::connect_docker() {
+        if let Ok(mut guard) = docker.client.lock() {
+            *guard = Some(client);
+        }
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]

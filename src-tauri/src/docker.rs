@@ -76,6 +76,19 @@ pub struct ContainerGroup {
     pub containers: Vec<ContainerInfo>,
 }
 
+/// Create a docker CLI command with proper DOCKER_HOST for Colima
+fn docker_cmd() -> Command {
+    let mut cmd = Command::new("docker");
+    // If Colima socket exists, use it
+    let colima_sock = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".colima/default/docker.sock");
+    if colima_sock.exists() {
+        cmd.env("DOCKER_HOST", format!("unix://{}", colima_sock.display()));
+    }
+    cmd
+}
+
 fn validate_container_id(id: &str) -> Result<(), String> {
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err("Invalid container ID".to_string());
@@ -507,7 +520,7 @@ pub async fn compose_up(file_path: String) -> Result<String, String> {
     }
 
     // Try `docker compose` first, fall back to `docker-compose`
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["compose", "-f", &file_path, "up", "-d"])
         .output()
         .or_else(|_| {
@@ -716,7 +729,7 @@ pub async fn list_container_files(
 ) -> Result<Vec<FileEntry>, String> {
     validate_container_id(&container_id)?;
     // Try GNU ls first, fallback to plain ls for BusyBox/Alpine
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["exec", &container_id, "ls", "-la", "--time-style=long-iso", &path])
         .output()
         .map_err(|e| e.to_string())?;
@@ -725,7 +738,7 @@ pub async fn list_container_files(
         (String::from_utf8_lossy(&output.stdout).to_string(), true)
     } else {
         // Fallback: plain ls -la (BusyBox)
-        let fallback = Command::new("docker")
+        let fallback = docker_cmd()
             .args(["exec", &container_id, "ls", "-la", &path])
             .output()
             .map_err(|e| e.to_string())?;
@@ -793,7 +806,7 @@ pub async fn read_container_file(
     path: String,
 ) -> Result<String, String> {
     validate_container_id(&container_id)?;
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["exec", &container_id, "cat", &path])
         .output()
         .map_err(|e| e.to_string())?;
@@ -814,7 +827,7 @@ pub async fn save_from_container(
 ) -> Result<(), String> {
     validate_container_id(&container_id)?;
     let src = format!("{}:{}", container_id, container_path);
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["cp", &src, &host_path])
         .output()
         .map_err(|e| e.to_string())?;
@@ -834,7 +847,7 @@ pub async fn import_to_container(
 ) -> Result<(), String> {
     validate_container_id(&container_id)?;
     let dest = format!("{}:{}", container_id, container_path);
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["cp", &host_path, &dest])
         .output()
         .map_err(|e| e.to_string())?;
