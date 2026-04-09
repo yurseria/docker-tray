@@ -7,11 +7,10 @@
 <p align="center">
   A lightweight macOS menubar app for managing Docker containers, images, volumes, and networks.
   <br/>
-  Built with Tauri + React + TypeScript.
+  Includes a built-in runtime (Colima) — no Docker Desktop required.
   <br/>
   <br/>
   <a href="https://www.apple.com/macos/"><img src="https://img.shields.io/badge/macOS-13+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS"></a>
-  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-Required-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-v22.x-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1.77+-DEA584?style=for-the-badge&logo=rust&logoColor=white" alt="Rust"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"></a>
@@ -26,15 +25,31 @@
 
 ## Features
 
-- **System Tray**: Lives in your menubar, click to toggle
-- **Container Management**: Start, stop, restart, remove containers
+### Docker Runtime
+- **Built-in Runtime**: Bundles Colima (lightweight VM) — works without Docker Desktop or OrbStack
+- **External Runtime Support**: Auto-detects Docker Desktop, OrbStack, etc.
+- **Auto Start**: Launches built-in runtime if no external Docker is found
+- **Start at Login**: Toggle in Settings
+
+### Container Management
+- **System Tray**: Lives in your menubar, click to toggle, right-click to quit
+- **Container Lifecycle**: Start, stop, restart, remove
+- **Group Control**: Start/stop/remove entire Compose groups
 - **Compose Support**: Import and run `docker-compose.yaml` files
 - **Image Management**: Pull, create containers from, and remove images
-- **Volume & Network**: Browse and remove volumes and networks
-- **Logs Viewer**: Open container logs in a separate window
+- **Volume & Network**: Browse and remove
+- **Search/Filter**: Filter across all tabs by name, image, or driver
+- **Detail View**: Click to see info + env vars, right-click to delete
+
+### Log Viewer
+- **Real-time Logs**: 1-second incremental polling, appends only new lines
+- **Follow Tail**: Auto-scroll on new logs, auto-disables on manual scroll
+- **Timestamp Toggle**: Show/hide with visual separation
+- **Text Copy**: Select and Cmd+C to copy log text
+
+### Tools
 - **File Explorer**: Browse and transfer files inside containers
-- **Terminal Access**: Open a shell into running containers (supports Ghostty, iTerm, Terminal.app)
-- **Detail View**: Click any item to see basic info, right-click to delete
+- **Terminal Access**: Open a shell into running containers (Ghostty, iTerm, Terminal.app)
 - **Resizable Window**: Drag the bottom edge to adjust height
 
 ## Install
@@ -43,17 +58,35 @@
 curl -fsSL https://raw.githubusercontent.com/yurseria/docker-tray/main/scripts/install.sh | bash
 ```
 
+## Docker Runtime
+
+Docker Tray works without Docker Desktop.
+
+| | External Runtime | Built-in Runtime |
+|---|---|---|
+| **How** | Docker Desktop, OrbStack, etc. | Bundled Colima (lightweight VM) |
+| **Detection** | Auto-detected on launch | Auto-starts when no external runtime |
+| **Extra Install** | Not needed | Not needed (included in app) |
+| **App Size** | 13MB | ~126MB (Colima + Lima + Docker CLI) |
+
+On first run with built-in runtime, a VM image is downloaded (~200MB, one-time). A macOS notification is sent when ready.
+
 ## Tech Stack
 
 - **Frontend**: React 19, TypeScript, Vite
 - **Backend**: Rust, Tauri 2, Bollard (Docker API)
+- **Runtime**: Colima, Lima, Docker CLI (bundled)
 - **Node**: 22 (see `.nvmrc`)
 
 ## Prerequisites
 
+Usage:
+- macOS 13+
+
+Development:
 - [Rust](https://rustup.rs/)
 - [Node.js 22+](https://nodejs.org/)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- [Colima](https://github.com/abiosoft/colima) (`brew install colima` — for runtime bundling)
 
 ## Development
 
@@ -65,6 +98,10 @@ npm run dev:tauri
 ## Build
 
 ```bash
+# Bundle runtime (first build)
+./scripts/bundle-runtime.sh
+
+# Build app
 npm run tauri build
 ```
 
@@ -80,8 +117,13 @@ The built app will be in `src-tauri/target/release/bundle/`.
 ├── src-tauri/              # Rust backend
 │   ├── src/
 │   │   ├── docker.rs       # Docker API commands
+│   │   ├── runtime.rs      # Colima runtime management
 │   │   └── lib.rs          # Tauri app setup, tray, windows
+│   ├── runtime/            # Bundled binaries (git ignored)
 │   └── tauri.conf.json     # Tauri config
+├── scripts/
+│   ├── bundle-runtime.sh   # Bundle Colima/Lima/Docker CLI
+│   └── install.sh          # One-line install script
 └── vite.config.ts
 ```
 
