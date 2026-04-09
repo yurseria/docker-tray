@@ -82,6 +82,8 @@ function App() {
     // Poll runtime_status until running or error
     const msgs = ["Starting VM...", "Downloading VM image (first run only)...", "Configuring Docker engine...", "Almost ready..."];
     let msgIdx = 0;
+    let retries = 0;
+    const maxRetries = 3;
     const msgTimer = setInterval(() => {
       msgIdx = Math.min(msgIdx + 1, msgs.length - 1);
       setRuntimeStatus(msgs[msgIdx]);
@@ -102,10 +104,11 @@ function App() {
           await ping();
           setRuntimeLoading(false);
           setRuntimeStatus("");
-        } else if (status.message.includes("stopped")) {
-          // Colima finished but didn't start — might need retry
-          setRuntimeLoading(false);
-          setRuntimeStatus("");
+        } else if (status.message.includes("stopped") && retries < maxRetries) {
+          retries++;
+          setRuntimeStatus(`Retrying (${retries}/${maxRetries})...`);
+          try { await invoke("runtime_start"); } catch { /* poll will catch */ }
+          return; // Keep polling
         } else {
           setRuntimeError(status.message);
           setRuntimeLoading(false);
