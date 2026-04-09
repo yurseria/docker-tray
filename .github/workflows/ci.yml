@@ -32,6 +32,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Create runtime placeholder
+        run: mkdir -p src-tauri/runtime/colima/bin src-tauri/runtime/lima/bin src-tauri/runtime/docker/bin && touch src-tauri/runtime/colima/bin/.gitkeep src-tauri/runtime/lima/bin/.gitkeep src-tauri/runtime/docker/bin/.gitkeep
+
       - name: Check Rust
         working-directory: src-tauri
         run: cargo check
