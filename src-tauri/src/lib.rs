@@ -67,9 +67,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(DockerState {
-            client: std::sync::Mutex::new(docker_client),
+            client: Arc::new(std::sync::Mutex::new(docker_client)),
         })
         .manage(BrowsingState(browsing))
+        .manage(RuntimeState {
+            starting: Arc::new(AtomicBool::new(false)),
+            error: Arc::new(Mutex::new(None)),
+        })
         .invoke_handler(tauri::generate_handler![
             docker::list_containers,
             docker::list_images,
@@ -346,25 +350,80 @@ fn pick_yaml_file(state: tauri::State<'_, BrowsingState>) -> Result<Option<Strin
 
 // --- Runtime management ---
 
-#[tauri::command]
-fn runtime_status(app: tauri::AppHandle) -> Result<runtime::RuntimeStatus, String> {
-    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
-    Ok(runtime::detect_runtime(&resource_dir))
+use std::sync::Mutex;
+
+struct RuntimeState {
+    starting: Arc<AtomicBool>,
+    error: Arc<Mutex<Option<String>>>,
 }
 
 #[tauri::command]
-fn runtime_start(app: tauri::AppHandle, docker: tauri::State<'_, DockerState>) -> Result<String, String> {
+fn runtime_status(
+    app: tauri::AppHandle,
+    runtime_state: tauri::State<'_, RuntimeState>,
+) -> Result<runtime::RuntimeStatus, String> {
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
-    let result = runtime::start_builtin(&resource_dir)?;
+    let mut status = runtime::detect_runtime(&resource_dir);
 
-    // Reconnect Docker client after runtime starts
-    if let Some(client) = runtime::connect_docker() {
-        if let Ok(mut guard) = docker.client.lock() {
-            *guard = Some(client);
+    // Override with starting state
+    if runtime_state.starting.load(Ordering::SeqCst) {
+        status.running = false;
+        status.message = "Starting runtime...".to_string();
+        status.kind = runtime::RuntimeKind::Builtin;
+    }
+
+    // Check for errors
+    if let Ok(guard) = runtime_state.error.lock() {
+        if let Some(err) = guard.as_ref() {
+            status.message = err.clone();
         }
     }
 
-    Ok(result)
+    Ok(status)
+}
+
+#[tauri::command]
+fn runtime_start(
+    app: tauri::AppHandle,
+    docker: tauri::State<'_, DockerState>,
+    runtime_state: tauri::State<'_, RuntimeState>,
+) -> Result<(), String> {
+    if runtime_state.starting.load(Ordering::SeqCst) {
+        return Ok(()); // Already starting
+    }
+
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    let docker_client = docker.client.clone();
+    let starting = runtime_state.starting.clone();
+    let error = runtime_state.error.clone();
+
+    // Clear previous error
+    if let Ok(mut guard) = error.lock() {
+        *guard = None;
+    }
+    starting.store(true, Ordering::SeqCst);
+
+    // Run in background thread — returns immediately
+    std::thread::spawn(move || {
+        match runtime::start_builtin(&resource_dir) {
+            Ok(_) => {
+                // Reconnect Docker client
+                if let Some(client) = runtime::connect_docker() {
+                    if let Ok(mut guard) = docker_client.lock() {
+                        *guard = Some(client);
+                    }
+                }
+            }
+            Err(e) => {
+                if let Ok(mut guard) = error.lock() {
+                    *guard = Some(e);
+                }
+            }
+        }
+        starting.store(false, Ordering::SeqCst);
+    });
+
+    Ok(())
 }
 
 #[tauri::command]

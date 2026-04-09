@@ -14,7 +14,7 @@ use std::process::Command;
 use tauri::State;
 
 pub struct DockerState {
-    pub client: std::sync::Mutex<Option<Docker>>,
+    pub client: std::sync::Arc<std::sync::Mutex<Option<Docker>>>,
 }
 
 fn get_client(docker: &DockerState) -> Result<Docker, String> {

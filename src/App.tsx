@@ -58,35 +58,49 @@ function App() {
   const startRuntime = async () => {
     setRuntimeLoading(true);
     setRuntimeError(null);
-    setRuntimeStatus("Initializing runtime...");
+    setRuntimeStatus("Starting VM...");
+
     try {
-      const steps = [
-        { msg: "Starting VM...", delay: 3000 },
-        { msg: "Downloading VM image (first run only)...", delay: 8000 },
-        { msg: "Configuring Docker engine...", delay: 5000 },
-        { msg: "Almost ready...", delay: 0 },
-      ];
-      let stepIndex = 0;
-      const timer = setInterval(() => {
-        stepIndex++;
-        if (stepIndex < steps.length) {
-          setRuntimeStatus(steps[stepIndex].msg);
-        }
-      }, steps[stepIndex]?.delay || 5000);
-
-      setRuntimeStatus(steps[0].msg);
+      // Fire and forget — returns immediately, runs in background
       await invoke("runtime_start");
-      clearInterval(timer);
-
-      setRuntimeStatus("Connecting...");
-      await new Promise((r) => setTimeout(r, 2000));
-      await ping();
     } catch (e) {
       setRuntimeError(String(e));
-    } finally {
       setRuntimeLoading(false);
-      setRuntimeStatus("");
+      return;
     }
+
+    // Poll runtime_status until running or error
+    const msgs = ["Starting VM...", "Downloading VM image (first run only)...", "Configuring Docker engine...", "Almost ready..."];
+    let msgIdx = 0;
+    const msgTimer = setInterval(() => {
+      msgIdx = Math.min(msgIdx + 1, msgs.length - 1);
+      setRuntimeStatus(msgs[msgIdx]);
+    }, 8000);
+
+    const poll = setInterval(async () => {
+      try {
+        const status = await invoke<{ kind: string; running: boolean; message: string }>("runtime_status");
+        if (status.message.startsWith("Starting runtime")) {
+          return; // Still starting
+        }
+        clearInterval(poll);
+        clearInterval(msgTimer);
+
+        if (status.running) {
+          setRuntimeStatus("Connecting...");
+          await new Promise((r) => setTimeout(r, 1000));
+          await ping();
+          setRuntimeLoading(false);
+          setRuntimeStatus("");
+        } else {
+          setRuntimeError(status.message);
+          setRuntimeLoading(false);
+          setRuntimeStatus("");
+        }
+      } catch {
+        // Keep polling
+      }
+    }, 2000);
   };
 
   if (!docker.connected) {
