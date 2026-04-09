@@ -279,6 +279,7 @@ pub async fn get_container_logs(
     docker: State<'_, DockerState>,
     id: String,
     tail: Option<String>,
+    timestamps: Option<bool>,
 ) -> Result<Vec<String>, String> {
     use futures_util::StreamExt;
 
@@ -286,6 +287,37 @@ pub async fn get_container_logs(
         stdout: true,
         stderr: true,
         tail: tail.unwrap_or_else(|| "100".to_string()),
+        timestamps: timestamps.unwrap_or(false),
+        ..Default::default()
+    };
+
+    let mut stream = get_client(&docker)?.logs(&id, Some(opts));
+    let mut lines = Vec::new();
+
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(output) => lines.push(output.to_string()),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+
+    Ok(lines)
+}
+
+#[tauri::command]
+pub async fn get_container_logs_since(
+    docker: State<'_, DockerState>,
+    id: String,
+    since: i64,
+    timestamps: Option<bool>,
+) -> Result<Vec<String>, String> {
+    use futures_util::StreamExt;
+
+    let opts = LogsOptions::<String> {
+        stdout: true,
+        stderr: true,
+        since,
+        timestamps: timestamps.unwrap_or(false),
         ..Default::default()
     };
 
