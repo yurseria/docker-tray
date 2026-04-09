@@ -14,7 +14,16 @@ use std::process::Command;
 use tauri::State;
 
 pub struct DockerState {
-    pub client: Docker,
+    pub client: std::sync::Arc<std::sync::Mutex<Option<Docker>>>,
+}
+
+fn get_client(docker: &DockerState) -> Result<Docker, String> {
+    docker
+        .client
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or_else(|| "Docker not connected. Start a runtime first.".to_string())
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -67,6 +76,19 @@ pub struct ContainerGroup {
     pub containers: Vec<ContainerInfo>,
 }
 
+/// Create a docker CLI command with proper DOCKER_HOST for Colima
+fn docker_cmd() -> Command {
+    let mut cmd = Command::new("docker");
+    // If Colima socket exists, use it
+    let colima_sock = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".colima/default/docker.sock");
+    if colima_sock.exists() {
+        cmd.env("DOCKER_HOST", format!("unix://{}", colima_sock.display()));
+    }
+    cmd
+}
+
 fn validate_container_id(id: &str) -> Result<(), String> {
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err("Invalid container ID".to_string());
@@ -115,8 +137,7 @@ pub async fn list_containers(
         ..Default::default()
     };
 
-    let containers = docker
-        .client
+    let containers = get_client(&docker)?
         .list_containers(Some(opts))
         .await
         .map_err(|e| e.to_string())?;
@@ -157,8 +178,7 @@ pub async fn list_images(docker: State<'_, DockerState>) -> Result<Vec<ImageInfo
         ..Default::default()
     };
 
-    let images = docker
-        .client
+    let images = get_client(&docker)?
         .list_images(Some(opts))
         .await
         .map_err(|e| e.to_string())?;
@@ -180,8 +200,7 @@ pub async fn list_volumes(docker: State<'_, DockerState>) -> Result<Vec<VolumeIn
         ..Default::default()
     };
 
-    let response = docker
-        .client
+    let response = get_client(&docker)?
         .list_volumes(Some(opts))
         .await
         .map_err(|e| e.to_string())?;
@@ -205,8 +224,7 @@ pub async fn list_networks(docker: State<'_, DockerState>) -> Result<Vec<Network
         ..Default::default()
     };
 
-    let networks = docker
-        .client
+    let networks = get_client(&docker)?
         .list_networks(Some(opts))
         .await
         .map_err(|e| e.to_string())?;
@@ -228,8 +246,7 @@ pub async fn start_container(
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
-    docker
-        .client
+    get_client(&docker)?
         .start_container(&id, None::<StartContainerOptions<String>>)
         .await
         .map_err(|e| e.to_string())
@@ -240,8 +257,7 @@ pub async fn stop_container(
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
-    docker
-        .client
+    get_client(&docker)?
         .stop_container(&id, Some(StopContainerOptions { t: 10 }))
         .await
         .map_err(|e| e.to_string())
@@ -252,8 +268,7 @@ pub async fn restart_container(
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
-    docker
-        .client
+    get_client(&docker)?
         .restart_container(&id, Some(bollard::container::RestartContainerOptions { t: 10 }))
         .await
         .map_err(|e| e.to_string())
@@ -264,6 +279,7 @@ pub async fn get_container_logs(
     docker: State<'_, DockerState>,
     id: String,
     tail: Option<String>,
+    timestamps: Option<bool>,
 ) -> Result<Vec<String>, String> {
     use futures_util::StreamExt;
 
@@ -271,10 +287,41 @@ pub async fn get_container_logs(
         stdout: true,
         stderr: true,
         tail: tail.unwrap_or_else(|| "100".to_string()),
+        timestamps: timestamps.unwrap_or(false),
         ..Default::default()
     };
 
-    let mut stream = docker.client.logs(&id, Some(opts));
+    let mut stream = get_client(&docker)?.logs(&id, Some(opts));
+    let mut lines = Vec::new();
+
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(output) => lines.push(output.to_string()),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+
+    Ok(lines)
+}
+
+#[tauri::command]
+pub async fn get_container_logs_since(
+    docker: State<'_, DockerState>,
+    id: String,
+    since: i64,
+    timestamps: Option<bool>,
+) -> Result<Vec<String>, String> {
+    use futures_util::StreamExt;
+
+    let opts = LogsOptions::<String> {
+        stdout: true,
+        stderr: true,
+        since,
+        timestamps: timestamps.unwrap_or(false),
+        ..Default::default()
+    };
+
+    let mut stream = get_client(&docker)?.logs(&id, Some(opts));
     let mut lines = Vec::new();
 
     while let Some(result) = stream.next().await {
@@ -289,8 +336,7 @@ pub async fn get_container_logs(
 
 #[tauri::command]
 pub async fn docker_ping(docker: State<'_, DockerState>) -> Result<bool, String> {
-    docker
-        .client
+    get_client(&docker)?
         .ping()
         .await
         .map(|_| true)
@@ -304,8 +350,7 @@ pub async fn get_container_env(
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<Vec<String>, String> {
-    let info = docker
-        .client
+    let info = get_client(&docker)?
         .inspect_container(&id, None::<InspectContainerOptions>)
         .await
         .map_err(|e| e.to_string())?;
@@ -324,8 +369,7 @@ pub async fn remove_container(
     id: String,
     force: Option<bool>,
 ) -> Result<(), String> {
-    docker
-        .client
+    get_client(&docker)?
         .remove_container(
             &id,
             Some(RemoveContainerOptions {
@@ -342,8 +386,7 @@ pub async fn remove_image(
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
-    docker
-        .client
+    get_client(&docker)?
         .remove_image(
             &id,
             Some(RemoveImageOptions {
@@ -362,8 +405,7 @@ pub async fn remove_volume(
     docker: State<'_, DockerState>,
     name: String,
 ) -> Result<(), String> {
-    docker
-        .client
+    get_client(&docker)?
         .remove_volume(&name, None)
         .await
         .map_err(|e| e.to_string())
@@ -374,8 +416,7 @@ pub async fn remove_network(
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
-    docker
-        .client
+    get_client(&docker)?
         .remove_network(&id)
         .await
         .map_err(|e| e.to_string())
@@ -401,7 +442,7 @@ pub async fn pull_image(
         ..Default::default()
     };
 
-    let mut stream = docker.client.create_image(Some(opts), None, None);
+    let mut stream = get_client(&docker)?.create_image(Some(opts), None, None);
     while let Some(result) = stream.next().await {
         result.map_err(|e| e.to_string())?;
     }
@@ -481,15 +522,14 @@ pub async fn create_container(
         platform: None,
     });
 
-    let response = docker
-        .client
+    let client = get_client(&docker)?;
+    let response = client
         .create_container(opts, config)
         .await
         .map_err(|e| e.to_string())?;
 
     if input.auto_start {
-        docker
-            .client
+        client
             .start_container(&response.id, None::<StartContainerOptions<String>>)
             .await
             .map_err(|e| e.to_string())?;
@@ -512,7 +552,7 @@ pub async fn compose_up(file_path: String) -> Result<String, String> {
     }
 
     // Try `docker compose` first, fall back to `docker-compose`
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["compose", "-f", &file_path, "up", "-d"])
         .output()
         .or_else(|_| {
@@ -548,8 +588,7 @@ pub async fn get_container_mounts(
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<Vec<MountInfo>, String> {
-    let info = docker
-        .client
+    let info = get_client(&docker)?
         .inspect_container(&id, None::<InspectContainerOptions>)
         .await
         .map_err(|e| e.to_string())?;
@@ -722,7 +761,7 @@ pub async fn list_container_files(
 ) -> Result<Vec<FileEntry>, String> {
     validate_container_id(&container_id)?;
     // Try GNU ls first, fallback to plain ls for BusyBox/Alpine
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["exec", &container_id, "ls", "-la", "--time-style=long-iso", &path])
         .output()
         .map_err(|e| e.to_string())?;
@@ -731,7 +770,7 @@ pub async fn list_container_files(
         (String::from_utf8_lossy(&output.stdout).to_string(), true)
     } else {
         // Fallback: plain ls -la (BusyBox)
-        let fallback = Command::new("docker")
+        let fallback = docker_cmd()
             .args(["exec", &container_id, "ls", "-la", &path])
             .output()
             .map_err(|e| e.to_string())?;
@@ -799,7 +838,7 @@ pub async fn read_container_file(
     path: String,
 ) -> Result<String, String> {
     validate_container_id(&container_id)?;
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["exec", &container_id, "cat", &path])
         .output()
         .map_err(|e| e.to_string())?;
@@ -820,7 +859,7 @@ pub async fn save_from_container(
 ) -> Result<(), String> {
     validate_container_id(&container_id)?;
     let src = format!("{}:{}", container_id, container_path);
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["cp", &src, &host_path])
         .output()
         .map_err(|e| e.to_string())?;
@@ -840,7 +879,7 @@ pub async fn import_to_container(
 ) -> Result<(), String> {
     validate_container_id(&container_id)?;
     let dest = format!("{}:{}", container_id, container_path);
-    let output = Command::new("docker")
+    let output = docker_cmd()
         .args(["cp", &host_path, &dest])
         .output()
         .map_err(|e| e.to_string())?;

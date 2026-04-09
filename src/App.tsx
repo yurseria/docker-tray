@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useDocker } from "./hooks/useDocker";
 import { ContainersTab } from "./components/ContainersTab";
 import { ImagesTab } from "./components/ImagesTab";
@@ -50,18 +51,109 @@ function App() {
     return () => clearInterval(interval);
   }, [fetchCurrentTab]);
 
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
+  const [runtimeStatus, setRuntimeStatus] = useState("");
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeHint, setRuntimeHint] = useState("No Docker runtime detected");
+  const [hasBuiltinRuntime, setHasBuiltinRuntime] = useState(false);
+
+  // Check runtime status on mount when disconnected
+  useEffect(() => {
+    if (!docker.connected) {
+      invoke<{ kind: string; running: boolean; message: string }>("runtime_status")
+        .then((s) => {
+          setRuntimeHint(s.message);
+          setHasBuiltinRuntime(s.kind === "Builtin" || s.kind === "None");
+          // If already starting in background, show spinner and start polling
+          if (s.message === "Starting runtime...") {
+            setRuntimeLoading(true);
+            setRuntimeStatus("Starting VM...");
+            startPolling();
+          }
+        })
+        .catch(() => {});
+    }
+  }, [docker.connected]);
+
+  const startPolling = () => {
+    const msgs = ["Starting VM...", "Downloading VM image (first run only)...", "Configuring Docker engine...", "Almost ready..."];
+    let msgIdx = 0;
+    const msgTimer = setInterval(() => {
+      msgIdx = Math.min(msgIdx + 1, msgs.length - 1);
+      setRuntimeStatus(msgs[msgIdx]);
+    }, 8000);
+
+    const poll = setInterval(async () => {
+      try {
+        const status = await invoke<{ kind: string; running: boolean; message: string }>("runtime_status");
+        if (status.message === "Starting runtime...") {
+          return; // Still starting
+        }
+        clearInterval(poll);
+        clearInterval(msgTimer);
+
+        if (status.running) {
+          setRuntimeStatus("Connecting...");
+          await new Promise((r) => setTimeout(r, 1000));
+          await ping();
+        } else {
+          setRuntimeError(status.message || "Failed to start runtime");
+        }
+        setRuntimeLoading(false);
+        setRuntimeStatus("");
+      } catch {
+        // Keep polling
+      }
+    }, 2000);
+  };
+
+  const startRuntime = async () => {
+    setRuntimeLoading(true);
+    setRuntimeError(null);
+    setRuntimeStatus("Starting VM...");
+
+    try {
+      await invoke("runtime_start");
+    } catch (e) {
+      setRuntimeError(String(e));
+      setRuntimeLoading(false);
+      return;
+    }
+
+    startPolling();
+  };
+
   if (!docker.connected) {
     return (
       <div className="app">
         <div className="disconnected">
-          <i className="ri-server-line disconnected-icon" />
-          <div className="disconnected-text">Docker not available</div>
-          <div className="disconnected-hint">
-            Make sure Docker Desktop is running
-          </div>
-          <button className="retry-btn" onClick={docker.ping}>
-            <i className="ri-refresh-line" /> Retry
-          </button>
+          {runtimeLoading ? (
+            <>
+              <div className="runtime-spinner" />
+              <div className="disconnected-text">Starting Runtime</div>
+              <div className="disconnected-hint">{runtimeStatus}</div>
+            </>
+          ) : (
+            <>
+              <i className="ri-server-line disconnected-icon" />
+              <div className="disconnected-text">Docker not available</div>
+              <div className="disconnected-hint">{runtimeHint}</div>
+            </>
+          )}
+          {runtimeError && <div className="disconnected-error">{runtimeError}</div>}
+          {!runtimeLoading && (
+            <div className="disconnected-actions">
+              {hasBuiltinRuntime ? (
+                <button className="retry-btn primary" onClick={startRuntime}>
+                  <i className="ri-play-fill" /> Start Built-in Runtime
+                </button>
+              ) : (
+                <button className="retry-btn" onClick={ping}>
+                  <i className="ri-refresh-line" /> Retry Connection
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

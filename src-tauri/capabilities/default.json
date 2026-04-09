@@ -12,6 +12,10 @@
     "core:window:allow-set-position",
     "core:window:allow-outer-position",
     "core:window:allow-outer-size",
-    "core:window:allow-close"
+    "core:window:allow-close",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission"
   ]
 }

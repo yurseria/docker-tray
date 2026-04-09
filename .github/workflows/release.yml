@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  push:
+    branches: [release]
+
+permissions:
+  contents: write
+
+jobs:
+  # ── 1. auto shipit: 버전 범프 + 태그 + GitHub Release ──────
+  release:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'ci skip') && !contains(github.event.head_commit.message, 'skip ci')"
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      released: ${{ steps.release.outputs.released }}
+      install_guide: ${{ steps.guide.outputs.content }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install auto
+        run: |
+          npm i -D auto @auto-it/git-tag @auto-it/exec @auto-it/conventional-commits
+          git checkout -- package.json package-lock.json
+
+      - name: Create labels
+        run: npx auto create-labels
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Release
+        id: release
+        run: |
+          npx auto shipit
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$TAG" ]; then
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "released=true" >> $GITHUB_OUTPUT
+          else
+            echo "released=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Load install guide
+        if: steps.release.outputs.released == 'true'
+        id: guide
+        run: |
+          {
+            echo 'content<<GUIDE_EOF'
+            cat .github/RELEASE_TEMPLATE.md
+            echo 'GUIDE_EOF'
+          } >> $GITHUB_OUTPUT
+
+  # ── 2. Tauri 패키징 (macOS only) ──────────────────────────
+  package-tauri:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Colima & Docker CLI (for runtime bundling)
+        run: brew install colima docker
+
+      - name: Bundle runtime
+        run: ./scripts/bundle-runtime.sh
+
+      - name: Package Tauri
+        run: npx tauri build
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p tauri-out
+          find src-tauri/target/release/bundle -type f -name "*.dmg" -exec cp {} tauri-out/ \;
+          ls -la tauri-out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-macos
+          path: tauri-out/*
+
+  # ── 3. 빌드 산출물을 릴리스에 첨부 ─────────────────────────
+  upload-assets:
+    needs: [release, package-tauri]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List all artifacts
+        run: find artifacts -type f | sort
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          append_body: true
+          body: |
+            ---
+            ${{ needs.release.outputs.install_guide }}
+          files: artifacts/tauri-macos/*

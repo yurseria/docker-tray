@@ -42,8 +42,10 @@ interface Props {
 export function Settings({ onClose }: Props) {
   const [settings, setSettings] = useState<SettingsData>(loadSettings);
   const [detectedTerminal, setDetectedTerminal] = useState("...");
+  const [autostart, setAutostart] = useState(false);
 
   useEffect(() => {
+    invoke<boolean>("get_autostart").then(setAutostart).catch(() => {});
     invoke<string>("detect_terminal").then((t) => {
       const names: Record<string, string> = {
         ghostty: "Ghostty",
@@ -137,6 +139,21 @@ export function Settings({ onClose }: Props) {
             <option value={10}>10 seconds</option>
             <option value={30}>30 seconds</option>
           </select>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">Start at Login</label>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={autostart}
+              onChange={(e) => {
+                const val = e.target.checked;
+                invoke("set_autostart", { enabled: val }).then(() => setAutostart(val)).catch(() => {});
+              }}
+            />
+            <span className="settings-hint">Launch Docker Tray when you log in</span>
+          </label>
         </div>
 
         <div className="settings-group">
