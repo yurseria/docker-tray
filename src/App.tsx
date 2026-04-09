@@ -54,6 +54,16 @@ function App() {
   const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState("");
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeHint, setRuntimeHint] = useState("No Docker runtime detected");
+
+  // Check runtime status on mount when disconnected
+  useEffect(() => {
+    if (!docker.connected) {
+      invoke<{ kind: string; running: boolean; message: string }>("runtime_status")
+        .then((s) => setRuntimeHint(s.message))
+        .catch(() => {});
+    }
+  }, [docker.connected]);
 
   const startRuntime = async () => {
     setRuntimeLoading(true);
@@ -92,6 +102,10 @@ function App() {
           await ping();
           setRuntimeLoading(false);
           setRuntimeStatus("");
+        } else if (status.message.includes("stopped")) {
+          // Colima finished but didn't start — might need retry
+          setRuntimeLoading(false);
+          setRuntimeStatus("");
         } else {
           setRuntimeError(status.message);
           setRuntimeLoading(false);
@@ -117,7 +131,7 @@ function App() {
             <>
               <i className="ri-server-line disconnected-icon" />
               <div className="disconnected-text">Docker not available</div>
-              <div className="disconnected-hint">No Docker runtime detected</div>
+              <div className="disconnected-hint">{runtimeHint}</div>
             </>
           )}
           {runtimeError && <div className="disconnected-error">{runtimeError}</div>}
