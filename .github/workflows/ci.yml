@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  build:
-    name: Build (macOS)
+  build-tauri:
+    name: Build Tauri
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
