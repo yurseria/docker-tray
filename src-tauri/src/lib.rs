@@ -57,7 +57,7 @@ fn set_macos_accessory_app() {
 pub fn run() {
     let docker_client = Docker::connect_with_local_defaults()
         .or_else(|_| Docker::connect_with_socket_defaults())
-        .expect("Failed to initialize Docker client");
+        .ok();
 
     let last_focus_lost = Arc::new(AtomicU64::new(0));
     let last_focus_lost_for_tray = last_focus_lost.clone();
@@ -67,7 +67,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(DockerState {
-            client: docker_client,
+            client: std::sync::Mutex::new(docker_client),
         })
         .manage(BrowsingState(browsing))
         .invoke_handler(tauri::generate_handler![
