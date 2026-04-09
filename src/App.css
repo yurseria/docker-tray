@@ -908,6 +908,10 @@ body {
   font-weight: 600;
   font-size: 1rem;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }
 
 .log-window-id {
@@ -946,6 +950,20 @@ body {
   border-color: var(--accent);
 }
 
+.log-streaming-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 4px var(--green);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .log-window-content {
   flex: 1;
   overflow: auto;
@@ -954,6 +972,18 @@ body {
   font-size: 0.85rem;
   line-height: 1.6;
   background: #0d1117;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.log-line-ts {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0 0.4rem;
+  margin-right: 0.5rem;
+  border-right: 1px solid var(--border);
 }
 
 .log-window-content.wrap .log-line-text {
@@ -1067,6 +1097,13 @@ body {
 .settings-hint {
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
 }
 
 .scale-options {

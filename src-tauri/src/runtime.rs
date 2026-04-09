@@ -17,14 +17,34 @@ pub struct RuntimeStatus {
     pub message: String,
 }
 
-/// Check if a Docker socket is available
-pub fn docker_socket_available() -> bool {
-    Command::new("docker")
-        .args(["info", "--format", "{{.ID}}"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+/// Check if a non-Colima Docker socket is available (Docker Desktop, OrbStack, etc.)
+pub fn external_docker_available() -> bool {
+    // Check standard socket locations (not Colima's)
+    let standard_sockets = [
+        "/var/run/docker.sock",
+        // OrbStack
+        &format!("{}/.orbstack/run/docker.sock", dirs::home_dir().unwrap_or_default().display()),
+        // Docker Desktop
+        &format!("{}/.docker/run/docker.sock", dirs::home_dir().unwrap_or_default().display()),
+    ];
+
+    for sock in &standard_sockets {
+        if std::path::Path::new(sock).exists() {
+            // Verify it's actually working
+            let result = Command::new("docker")
+                .args(["info", "--format", "{{.ID}}"])
+                .env("DOCKER_HOST", format!("unix://{}", sock))
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if result {
+                return true;
+            }
+        }
+    }
+    false
 }
+
 
 /// Get the path to bundled Colima binary
 fn bundled_colima(resource_dir: &PathBuf) -> Option<PathBuf> {
@@ -71,8 +91,8 @@ fn colima_env(resource_dir: &PathBuf) -> Vec<(String, String)> {
 
 /// Detect current runtime status
 pub fn detect_runtime(resource_dir: &PathBuf) -> RuntimeStatus {
-    // Check if external Docker is running
-    if docker_socket_available() {
+    // Check if external Docker is running (Docker Desktop, OrbStack — not Colima)
+    if external_docker_available() {
         return RuntimeStatus {
             kind: RuntimeKind::External,
             running: true,
@@ -167,8 +187,8 @@ pub fn start_builtin(resource_dir: &PathBuf) -> Result<String, String> {
     let env = colima_env(resource_dir);
 
     let output = Command::new(&colima)
-        .args(["start", "--cpu", "2", "--memory", "2", "--disk", "20", "--runtime", "docker"])
-        .envs(env)
+        .args(["start", "--cpu", "2", "--memory", "4", "--disk", "20", "--runtime", "docker"])
+        .envs(env.clone())
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -178,10 +198,48 @@ pub fn start_builtin(resource_dir: &PathBuf) -> Result<String, String> {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        return Err(extract_error(&full));
+
+        // If start failed, try cleaning up corrupted state and retry once
+        let _ = Command::new(&colima)
+            .args(["delete", "--force"])
+            .envs(env.clone())
+            .output();
+
+        let retry = Command::new(&colima)
+            .args(["start", "--cpu", "2", "--memory", "4", "--disk", "20", "--runtime", "docker"])
+            .envs(env)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !retry.status.success() {
+            return Err(extract_error(&full));
+        }
     }
 
+    // Create /var/run/docker.sock symlink so all tools find the socket
+    create_docker_sock_symlink();
+
     Ok("Runtime started".to_string())
+}
+
+/// Create symlink from /var/run/docker.sock to Colima socket (requires sudo)
+fn create_docker_sock_symlink() {
+    let colima_sock = colima_socket_path();
+    if !colima_sock.exists() {
+        return;
+    }
+    let target = std::path::Path::new("/var/run/docker.sock");
+    if target.exists() {
+        return; // Already exists, don't overwrite
+    }
+    // Use osascript to request admin privileges
+    let script = format!(
+        r#"do shell script "ln -sf {} /var/run/docker.sock" with administrator privileges"#,
+        colima_sock.display()
+    );
+    let _ = Command::new("osascript")
+        .args(["-e", &script])
+        .output();
 }
 
 /// Stop the bundled Colima runtime

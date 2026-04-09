@@ -55,12 +55,16 @@ function App() {
   const [runtimeStatus, setRuntimeStatus] = useState("");
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [runtimeHint, setRuntimeHint] = useState("No Docker runtime detected");
+  const [hasBuiltinRuntime, setHasBuiltinRuntime] = useState(false);
 
   // Check runtime status on mount when disconnected
   useEffect(() => {
     if (!docker.connected) {
       invoke<{ kind: string; running: boolean; message: string }>("runtime_status")
-        .then((s) => setRuntimeHint(s.message))
+        .then((s) => {
+          setRuntimeHint(s.message);
+          setHasBuiltinRuntime(s.kind === "Builtin" || s.kind === "None");
+        })
         .catch(() => {});
     }
   }, [docker.connected]);
@@ -131,12 +135,15 @@ function App() {
           {runtimeError && <div className="disconnected-error">{runtimeError}</div>}
           {!runtimeLoading && (
             <div className="disconnected-actions">
-              <button className="retry-btn primary" onClick={startRuntime}>
-                <i className="ri-play-fill" /> Start Built-in Runtime
-              </button>
-              <button className="retry-btn" onClick={ping}>
-                <i className="ri-refresh-line" /> Retry Connection
-              </button>
+              {hasBuiltinRuntime ? (
+                <button className="retry-btn primary" onClick={startRuntime}>
+                  <i className="ri-play-fill" /> Start Built-in Runtime
+                </button>
+              ) : (
+                <button className="retry-btn" onClick={ping}>
+                  <i className="ri-refresh-line" /> Retry Connection
+                </button>
+              )}
             </div>
           )}
         </div>
