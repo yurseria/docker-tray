@@ -372,10 +372,12 @@ fn runtime_status(
         status.kind = runtime::RuntimeKind::Builtin;
     }
 
-    // Check for errors
-    if let Ok(guard) = runtime_state.error.lock() {
-        if let Some(err) = guard.as_ref() {
-            status.message = err.clone();
+    // Check for errors — override everything
+    if let Ok(mut guard) = runtime_state.error.lock() {
+        if let Some(err) = guard.take() {
+            status.kind = runtime::RuntimeKind::None;
+            status.running = false;
+            status.message = err;
         }
     }
 
@@ -407,10 +409,19 @@ fn runtime_start(
     std::thread::spawn(move || {
         match runtime::start_builtin(&resource_dir) {
             Ok(_) => {
+                // Wait a moment for socket to appear
+                std::thread::sleep(std::time::Duration::from_secs(2));
                 // Reconnect Docker client
-                if let Some(client) = runtime::connect_docker() {
-                    if let Ok(mut guard) = docker_client.lock() {
-                        *guard = Some(client);
+                match runtime::connect_docker() {
+                    Some(client) => {
+                        if let Ok(mut guard) = docker_client.lock() {
+                            *guard = Some(client);
+                        }
+                    }
+                    None => {
+                        if let Ok(mut guard) = error.lock() {
+                            *guard = Some("Runtime started but Docker connection failed. Try again.".to_string());
+                        }
                     }
                 }
             }
