@@ -64,26 +64,18 @@ function App() {
         .then((s) => {
           setRuntimeHint(s.message);
           setHasBuiltinRuntime(s.kind === "Builtin" || s.kind === "None");
+          // If already starting in background, show spinner and start polling
+          if (s.message === "Starting runtime...") {
+            setRuntimeLoading(true);
+            setRuntimeStatus("Starting VM...");
+            startPolling();
+          }
         })
         .catch(() => {});
     }
   }, [docker.connected]);
 
-  const startRuntime = async () => {
-    setRuntimeLoading(true);
-    setRuntimeError(null);
-    setRuntimeStatus("Starting VM...");
-
-    try {
-      // Fire and forget — returns immediately, runs in background
-      await invoke("runtime_start");
-    } catch (e) {
-      setRuntimeError(String(e));
-      setRuntimeLoading(false);
-      return;
-    }
-
-    // Poll runtime_status until running or error
+  const startPolling = () => {
     const msgs = ["Starting VM...", "Downloading VM image (first run only)...", "Configuring Docker engine...", "Almost ready..."];
     let msgIdx = 0;
     const msgTimer = setInterval(() => {
@@ -113,6 +105,22 @@ function App() {
         // Keep polling
       }
     }, 2000);
+  };
+
+  const startRuntime = async () => {
+    setRuntimeLoading(true);
+    setRuntimeError(null);
+    setRuntimeStatus("Starting VM...");
+
+    try {
+      await invoke("runtime_start");
+    } catch (e) {
+      setRuntimeError(String(e));
+      setRuntimeLoading(false);
+      return;
+    }
+
+    startPolling();
   };
 
   if (!docker.connected) {

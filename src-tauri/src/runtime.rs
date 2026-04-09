@@ -232,7 +232,7 @@ fn create_docker_sock_symlink() {
     if target.exists() {
         return; // Already exists, don't overwrite
     }
-    // Use osascript to request admin privileges
+    // Use osascript for admin privileges (GUI password dialog)
     let script = format!(
         r#"do shell script "ln -sf {} /var/run/docker.sock" with administrator privileges"#,
         colima_sock.display()

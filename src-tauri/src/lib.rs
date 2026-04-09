@@ -17,7 +17,24 @@ use tauri::{
 
 fn send_notification(app: &tauri::AppHandle, title: &str, body: &str) {
     use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification().builder().title(title).body(body).show();
+    let notif = app.notification();
+
+    // Check if notification permission is granted
+    let granted = notif.permission_state()
+        .map(|s| s == tauri_plugin_notification::PermissionState::Granted)
+        .unwrap_or(false);
+
+    if granted {
+        let _ = notif.builder().title(title).body(body).show();
+    } else {
+        // Fallback: osascript (shows as "Script Editor")
+        let _ = std::process::Command::new("osascript")
+            .args(["-e", &format!(
+                r#"display notification "{}" with title "{}""#,
+                body, title
+            )])
+            .output();
+    }
 }
 
 pub struct BrowsingState(pub Arc<AtomicBool>);
