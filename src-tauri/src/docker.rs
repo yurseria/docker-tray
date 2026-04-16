@@ -10,8 +10,8 @@ use bollard::Docker;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
-use tauri::State;
+use std::process::{Command, Stdio};
+use tauri::{Emitter, State};
 
 pub struct DockerState {
     pub client: std::sync::Arc<std::sync::Mutex<Option<Docker>>>,
@@ -541,7 +541,7 @@ pub async fn create_container(
 // --- Docker Compose ---
 
 #[tauri::command]
-pub async fn compose_up(file_path: String) -> Result<String, String> {
+pub async fn compose_up(file_path: String, app: tauri::AppHandle) -> Result<String, String> {
     let path = Path::new(&file_path);
     if !path.is_file() {
         return Err(format!("File not found: {}", file_path));
@@ -552,24 +552,41 @@ pub async fn compose_up(file_path: String) -> Result<String, String> {
     }
 
     // Try `docker compose` first, fall back to `docker-compose`
-    let output = docker_cmd()
+    let mut child = docker_cmd()
         .args(["compose", "-f", &file_path, "up", "-d"])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .or_else(|_| {
             Command::new("docker-compose")
                 .args(["-f", &file_path, "up", "-d"])
-                .output()
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
         })
         .map_err(|e| e.to_string())?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if !output.status.success() {
-        return Err(stderr);
+    // Stream stderr lines as events (compose progress goes to stderr)
+    if let Some(stderr) = child.stderr.take() {
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                let _ = app.emit("compose-progress", &line);
+            }
+        }
     }
 
-    Ok(format!("{}{}", stdout, stderr))
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+    if !output.status.success() {
+        let _ = app.emit("compose-progress", "error");
+        return Err(stdout);
+    }
+
+    let _ = app.emit("compose-progress", "done");
+    Ok(stdout)
 }
 
 // --- Mount info ---

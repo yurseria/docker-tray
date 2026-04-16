@@ -224,6 +224,7 @@ export function useDocker() {
     loading,
     error,
     connected,
+    disconnect: useCallback(() => setConnected(false), []),
     ping,
     fetchContainers,
     fetchImages,

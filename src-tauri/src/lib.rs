@@ -133,6 +133,8 @@ pub fn run() {
             runtime_status,
             runtime_start,
             runtime_stop,
+            get_vm_config,
+            apply_vm_config,
             get_autostart,
             set_autostart,
             open_log_window,
@@ -465,19 +467,23 @@ fn runtime_status(
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
     let mut status = runtime::detect_runtime(&resource_dir);
 
+    let is_starting = runtime_state.starting.load(Ordering::SeqCst);
+
     // Override with starting state
-    if runtime_state.starting.load(Ordering::SeqCst) {
+    if is_starting {
         status.running = false;
         status.message = "Starting runtime...".to_string();
         status.kind = runtime::RuntimeKind::Builtin;
     }
 
-    // Check for errors — override everything
-    if let Ok(mut guard) = runtime_state.error.lock() {
-        if let Some(err) = guard.take() {
-            status.kind = runtime::RuntimeKind::None;
-            status.running = false;
-            status.message = err;
+    // Check for errors — only consume when not starting (avoid brief flash)
+    if !is_starting {
+        if let Ok(mut guard) = runtime_state.error.lock() {
+            if let Some(err) = guard.take() {
+                status.kind = runtime::RuntimeKind::None;
+                status.running = false;
+                status.message = err;
+            }
         }
     }
 
@@ -567,6 +573,89 @@ fn runtime_start(
 fn runtime_stop(app: tauri::AppHandle) -> Result<String, String> {
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
     runtime::stop_builtin(&resource_dir)
+}
+
+#[tauri::command]
+fn get_vm_config() -> runtime::VmConfig {
+    runtime::read_vm_config()
+}
+
+#[tauri::command]
+fn apply_vm_config(
+    app: tauri::AppHandle,
+    config: runtime::VmConfig,
+    docker: tauri::State<'_, DockerState>,
+    runtime_state: tauri::State<'_, RuntimeState>,
+) -> Result<(), String> {
+    if runtime_state.starting.load(Ordering::SeqCst) {
+        return Err("Runtime is already starting".to_string());
+    }
+
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    let docker_client = docker.client.clone();
+    let starting = runtime_state.starting.clone();
+    let error = runtime_state.error.clone();
+
+    if let Ok(mut guard) = error.lock() {
+        *guard = None;
+    }
+    starting.store(true, Ordering::SeqCst);
+
+    if let Some(tray) = app.tray_by_id("docker-tray") {
+        let _ = tray.set_tooltip(Some("Docker Tray — Restarting runtime..."));
+    }
+
+    let app_handle = app.clone();
+
+    std::thread::spawn(move || {
+        // Stop first
+        let _ = runtime::stop_builtin(&resource_dir);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Start with new config
+        let success = match runtime::start_builtin_with_config(&resource_dir, &config) {
+            Ok(_) => {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                match runtime::connect_docker() {
+                    Some(client) => {
+                        if let Ok(mut guard) = docker_client.lock() {
+                            *guard = Some(client);
+                        }
+                        true
+                    }
+                    None => {
+                        if let Ok(mut guard) = error.lock() {
+                            *guard = Some("Runtime started but Docker connection failed. Try again.".to_string());
+                        }
+                        false
+                    }
+                }
+            }
+            Err(e) => {
+                if let Ok(mut guard) = error.lock() {
+                    *guard = Some(e);
+                }
+                false
+            }
+        };
+        starting.store(false, Ordering::SeqCst);
+
+        if let Some(tray) = app_handle.tray_by_id("docker-tray") {
+            let _ = tray.set_tooltip(Some(if success {
+                "Docker Tray"
+            } else {
+                "Docker Tray — Runtime failed"
+            }));
+        }
+
+        if success {
+            send_notification(&app_handle, "Docker Tray", "Runtime restarted with new settings");
+        } else {
+            send_notification(&app_handle, "Docker Tray", "Runtime failed to restart");
+        }
+    });
+
+    Ok(())
 }
 
 #[tauri::command]

@@ -37,12 +37,22 @@ export function applyScale(scale: number) {
 
 interface Props {
   onClose: () => void;
+  onVmRestart?: () => void;
 }
 
-export function Settings({ onClose }: Props) {
+interface VmConfig {
+  cpu: number;
+  memory: number;
+  disk: number;
+}
+
+export function Settings({ onClose, onVmRestart }: Props) {
   const [settings, setSettings] = useState<SettingsData>(loadSettings);
   const [detectedTerminal, setDetectedTerminal] = useState("...");
   const [autostart, setAutostart] = useState(false);
+  const [vmConfig, setVmConfig] = useState<VmConfig | null>(null);
+  const [vmDraft, setVmDraft] = useState<VmConfig | null>(null);
+  const [vmApplying, setVmApplying] = useState(false);
 
   useEffect(() => {
     invoke<boolean>("get_autostart").then(setAutostart).catch(() => {});
@@ -54,7 +64,30 @@ export function Settings({ onClose }: Props) {
       };
       setDetectedTerminal(names[t] || t);
     });
+    invoke<VmConfig>("get_vm_config").then((c) => {
+      setVmConfig(c);
+      setVmDraft(c);
+    }).catch(() => {});
   }, []);
+
+  const vmChanged = vmConfig && vmDraft && (
+    vmDraft.cpu !== vmConfig.cpu ||
+    vmDraft.memory !== vmConfig.memory ||
+    vmDraft.disk !== vmConfig.disk
+  );
+
+  const applyVmConfig = async () => {
+    if (!vmDraft || vmApplying) return;
+    setVmApplying(true);
+    try {
+      await invoke("apply_vm_config", { config: vmDraft });
+      setVmConfig(vmDraft);
+      onVmRestart?.();
+    } catch (e) {
+      console.error("Failed to apply VM config:", e);
+      setVmApplying(false);
+    }
+  };
 
   const update = (partial: Partial<SettingsData>) => {
     setSettings((prev) => {
@@ -155,6 +188,62 @@ export function Settings({ onClose }: Props) {
             <span className="settings-hint">Launch Docker Tray when you log in</span>
           </label>
         </div>
+
+        {vmDraft && (
+          <>
+            <div className="settings-divider" />
+            <div className="settings-section-title">VM Resources</div>
+            <div className="settings-group">
+              <label className="settings-label">CPU (cores)</label>
+              <select
+                className="settings-select"
+                value={vmDraft.cpu}
+                onChange={(e) => setVmDraft({ ...vmDraft, cpu: Number(e.target.value) })}
+                disabled={vmApplying}
+              >
+                {[1, 2, 3, 4, 6, 8].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div className="settings-group">
+              <label className="settings-label">Memory (GB)</label>
+              <select
+                className="settings-select"
+                value={vmDraft.memory}
+                onChange={(e) => setVmDraft({ ...vmDraft, memory: Number(e.target.value) })}
+                disabled={vmApplying}
+              >
+                {[1, 2, 4, 6, 8, 12, 16].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div className="settings-group">
+              <label className="settings-label">Disk (GB)</label>
+              <select
+                className="settings-select"
+                value={vmDraft.disk}
+                onChange={(e) => setVmDraft({ ...vmDraft, disk: Number(e.target.value) })}
+                disabled={vmApplying}
+              >
+                {[10, 20, 40, 60, 80, 100].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+            {vmChanged && (
+              <button
+                className="confirm-btn danger vm-apply-btn"
+                onClick={applyVmConfig}
+                disabled={vmApplying}
+              >
+                {vmApplying ? "Restarting VM..." : "Apply & Restart VM"}
+              </button>
+            )}
+            <span className="settings-hint">Changing VM settings will restart the runtime</span>
+          </>
+        )}
 
         <div className="settings-group">
           <label className="settings-label">About</label>

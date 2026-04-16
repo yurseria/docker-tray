@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useDocker } from "./hooks/useDocker";
+import { useAutoResize } from "./hooks/useAutoResize";
 import { ContainersTab } from "./components/ContainersTab";
 import { ImagesTab } from "./components/ImagesTab";
 import { VolumesTab } from "./components/VolumesTab";
@@ -27,6 +28,9 @@ function App() {
   const [dialog, setDialog] = useState<DialogType>(null);
   const [createImage, setCreateImage] = useState<string | undefined>();
   const [search, setSearch] = useState("");
+
+  const appRef = useRef<HTMLDivElement>(null);
+  useAutoResize(appRef);
 
   const docker = useDocker();
   const { fetchContainers, fetchImages, fetchVolumes, fetchNetworks, ping } = docker;
@@ -94,8 +98,16 @@ function App() {
 
         if (status.running) {
           setRuntimeStatus("Connecting...");
-          await new Promise((r) => setTimeout(r, 1000));
-          await ping();
+          // Retry ping until Docker is ready (socket may take a moment)
+          for (let i = 0; i < 5; i++) {
+            await new Promise((r) => setTimeout(r, 1500));
+            if (await ping()) {
+              setRuntimeLoading(false);
+              setRuntimeStatus("");
+              return;
+            }
+          }
+          setRuntimeError("Runtime started but Docker connection failed. Try again.");
         } else {
           setRuntimeError(status.message || "Failed to start runtime");
         }
@@ -125,7 +137,7 @@ function App() {
 
   if (!docker.connected) {
     return (
-      <div className="app">
+      <div className="app" ref={appRef}>
         <div className="disconnected">
           {runtimeLoading ? (
             <>
@@ -160,7 +172,7 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app" ref={appRef}>
       <div className="titlebar">
         <span className="titlebar-text">Docker Tray</span>
         {docker.loading && <span className="loading-indicator" />}
@@ -195,7 +207,17 @@ function App() {
       </div>
 
       {showSettings ? (
-        <Settings onClose={() => setShowSettings(false)} />
+        <Settings
+          onClose={() => setShowSettings(false)}
+          onVmRestart={() => {
+            setShowSettings(false);
+            setRuntimeLoading(true);
+            setRuntimeError(null);
+            setRuntimeStatus("Restarting VM...");
+            docker.disconnect();
+            startPolling();
+          }}
+        />
       ) : (
         <>
           <nav className="tabs">
