@@ -3,6 +3,7 @@
 # Run before `tauri build` to include runtime in the app bundle.
 set -euo pipefail
 
+mkdir -p "$(dirname "$0")/../src-tauri/runtime"
 RUNTIME_DIR="$(cd "$(dirname "$0")/../src-tauri/runtime" && pwd)"
 ARCH="$(uname -m)"
 
