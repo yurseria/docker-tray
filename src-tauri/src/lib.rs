@@ -137,6 +137,8 @@ pub fn run() {
             apply_vm_config,
             get_autostart,
             set_autostart,
+            get_app_version,
+            check_for_updates,
             open_log_window,
             open_file_explorer_window,
             get_home_dir,
@@ -661,6 +663,67 @@ fn apply_vm_config(
 #[tauri::command]
 fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
     Ok(app.autolaunch().is_enabled().unwrap_or(false))
+}
+
+#[tauri::command]
+fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+#[derive(serde::Serialize)]
+struct UpdateInfo {
+    current_version: String,
+    latest_version: String,
+    has_update: bool,
+    release_url: String,
+}
+
+fn version_is_newer(latest: &str, current: &str) -> bool {
+    let parse = |s: &str| -> Vec<u64> {
+        s.split('.').filter_map(|p| p.parse().ok()).collect()
+    };
+    let l = parse(latest);
+    let c = parse(current);
+    for i in 0..l.len().max(c.len()) {
+        let lv = l.get(i).copied().unwrap_or(0);
+        let cv = c.get(i).copied().unwrap_or(0);
+        if lv > cv { return true; }
+        if lv < cv { return false; }
+    }
+    false
+}
+
+#[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
+    let current = app.package_info().version.to_string();
+
+    let client = reqwest::Client::builder()
+        .user_agent("docker-tray-updater")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp: serde_json::Value = client
+        .get("https://api.github.com/repos/yurseria/docker-tray/releases/latest")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let tag = resp["tag_name"].as_str().ok_or("No release found")?;
+    let latest = tag.trim_start_matches('v').to_string();
+    let release_url = resp["html_url"]
+        .as_str()
+        .unwrap_or("https://github.com/yurseria/docker-tray/releases")
+        .to_string();
+
+    Ok(UpdateInfo {
+        has_update: version_is_newer(&latest, &current),
+        current_version: current,
+        latest_version: latest,
+        release_url,
+    })
 }
 
 #[tauri::command]

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 interface SettingsData {
   terminal: string;
@@ -46,6 +47,15 @@ interface VmConfig {
   disk: number;
 }
 
+interface UpdateInfo {
+  current_version: string;
+  latest_version: string;
+  has_update: boolean;
+  release_url: string;
+}
+
+type UpdateStatus = "idle" | "checking" | "up-to-date" | "update-available" | "error";
+
 export function Settings({ onClose, onVmRestart }: Props) {
   const [settings, setSettings] = useState<SettingsData>(loadSettings);
   const [detectedTerminal, setDetectedTerminal] = useState("...");
@@ -53,8 +63,24 @@ export function Settings({ onClose, onVmRestart }: Props) {
   const [vmConfig, setVmConfig] = useState<VmConfig | null>(null);
   const [vmDraft, setVmDraft] = useState<VmConfig | null>(null);
   const [vmApplying, setVmApplying] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+
+  const handleCheckUpdate = async () => {
+    setUpdateStatus("checking");
+    try {
+      const info = await invoke<UpdateInfo>("check_for_updates");
+      setUpdateInfo(info);
+      setAppVersion(info.current_version);
+      setUpdateStatus(info.has_update ? "update-available" : "up-to-date");
+    } catch {
+      setUpdateStatus("error");
+    }
+  };
 
   useEffect(() => {
+    invoke<string>("get_app_version").then(setAppVersion).catch(() => {});
     invoke<boolean>("get_autostart").then(setAutostart).catch(() => {});
     invoke<string>("detect_terminal").then((t) => {
       const names: Record<string, string> = {
@@ -247,7 +273,30 @@ export function Settings({ onClose, onVmRestart }: Props) {
 
         <div className="settings-group">
           <label className="settings-label">About</label>
-          <span className="settings-hint">Docker Tray v0.1.0</span>
+          <span className="settings-hint">Docker Tray{appVersion ? ` v${appVersion}` : ""}</span>
+          <div className="update-check-row">
+            <button
+              className="update-check-btn"
+              onClick={handleCheckUpdate}
+              disabled={updateStatus === "checking"}
+            >
+              {updateStatus === "checking" ? "Checking..." : "Check for Updates"}
+            </button>
+            {updateStatus === "up-to-date" && (
+              <span className="settings-hint update-status">Up to date</span>
+            )}
+            {updateStatus === "error" && (
+              <span className="settings-hint update-status update-status--error">Check failed</span>
+            )}
+            {updateStatus === "update-available" && updateInfo && (
+              <button
+                className="update-status update-status--available"
+                onClick={() => openUrl(updateInfo.release_url)}
+              >
+                v{updateInfo.latest_version} available →
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
