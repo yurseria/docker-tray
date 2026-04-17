@@ -80,6 +80,13 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Patch version
+        run: |
+          VERSION=${{ needs.release.outputs.tag }}
+          VERSION=${VERSION#v}
+          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
+          sed -i '' "1,/^\[dependencies\]/s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+
       - name: Install dependencies
         run: npm ci
 
