@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:tauri": "tauri dev",
+    "build:local": "bash scripts/setup-dev-runtime.sh",
     "build": "tsc && vite build",
     "build:tauri": "tauri build",
     "preview": "vite preview",

@@ -26,14 +26,6 @@ fn send_notification(app: &tauri::AppHandle, title: &str, body: &str) {
 
     if granted {
         let _ = notif.builder().title(title).body(body).show();
-    } else {
-        // Fallback: osascript (shows as "Script Editor")
-        let _ = std::process::Command::new("osascript")
-            .args(["-e", &format!(
-                r#"display notification "{}" with title "{}""#,
-                body, title
-            )])
-            .output();
     }
 }
 
@@ -57,6 +49,8 @@ fn setup_macos_window(window: &tauri::WebviewWindow) {
     ns_window.setBackgroundColor(Some(&NSColor::clearColor()));
     ns_window.setHasShadow(true);
 
+    // Keep WKWebView as contentView (Tauri already sets _drawsBackground:NO for transparency).
+    // CSS backdrop-filter on the .app element blurs the compositor content behind the window.
     if let Some(content_view) = ns_window.contentView() {
         content_view.setWantsLayer(true);
         if let Some(layer) = content_view.layer() {
@@ -90,6 +84,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -257,8 +252,8 @@ pub fn run() {
                 let _ = window.hide();
             }
 
-            // Auto-start runtime if Docker is not available
-            if !runtime::external_docker_available() {
+            // Auto-start runtime if Docker is not available and Colima is not already running
+            if !runtime::external_docker_available() && !runtime::colima_socket_path().exists() {
                 let resource_dir = app.path().resource_dir().unwrap_or_default();
                 let docker_client = app.state::<DockerState>().client.clone();
                 let starting = app.state::<RuntimeState>().starting.clone();
@@ -395,61 +390,38 @@ fn get_home_dir() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn pick_file_for_import(state: tauri::State<'_, BrowsingState>) -> Result<Option<String>, String> {
-    use std::process::Command;
+fn pick_file_for_import(app: tauri::AppHandle, state: tauri::State<'_, BrowsingState>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
     state.0.store(true, Ordering::SeqCst);
-    let result = (|| {
-        let output = Command::new("osascript")
-            .args([
-                "-e",
-                r#"set f to choose file with prompt "Select file to import"
-                return POSIX path of f"#,
-            ])
-            .output()
-            .map_err(|e| e.to_string())?;
-
-        if !output.status.success() {
-            return Ok(None);
-        }
-
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if path.is_empty() { Ok(None) } else { Ok(Some(path)) }
-    })();
+    let result = app.dialog()
+        .file()
+        .blocking_pick_file()
+        .and_then(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().to_string());
     let flag = state.0.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(500));
         flag.store(false, Ordering::SeqCst);
     });
-    result
+    Ok(result)
 }
 
 #[tauri::command]
-fn pick_yaml_file(state: tauri::State<'_, BrowsingState>) -> Result<Option<String>, String> {
-    use std::process::Command;
+fn pick_yaml_file(app: tauri::AppHandle, state: tauri::State<'_, BrowsingState>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
     state.0.store(true, Ordering::SeqCst);
-    let result = (|| {
-        let output = Command::new("osascript")
-            .args([
-                "-e",
-                r#"set f to choose file with prompt "Select docker-compose file" of type {"yaml", "yml", "public.yaml", "public.plain-text"}
-                return POSIX path of f"#,
-            ])
-            .output()
-            .map_err(|e| e.to_string())?;
-
-        if !output.status.success() {
-            return Ok(None);
-        }
-
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if path.is_empty() { Ok(None) } else { Ok(Some(path)) }
-    })();
+    let result = app.dialog()
+        .file()
+        .add_filter("Docker Compose", &["yaml", "yml"])
+        .blocking_pick_file()
+        .and_then(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().to_string());
     let flag = state.0.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(500));
         flag.store(false, Ordering::SeqCst);
     });
-    result
+    Ok(result)
 }
 
 // --- Runtime management ---

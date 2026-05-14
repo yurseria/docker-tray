@@ -743,15 +743,8 @@ pub async fn open_terminal(
                 .map_err(|e| e.to_string())?;
         }
         _ => {
-            let script = format!(
-                r#"tell application "Terminal"
-                    activate
-                    do script "{}"
-                end tell"#,
-                tmp_escaped
-            );
-            Command::new("osascript")
-                .args(["-e", &script])
+            Command::new("open")
+                .args(["-a", "Terminal", &tmp_str])
                 .spawn()
                 .map_err(|e| e.to_string())?;
         }

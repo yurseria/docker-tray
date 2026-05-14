@@ -120,26 +120,6 @@ fn colima_env_for(colima_path: &Path) -> Vec<(String, String)> {
     env
 }
 
-/// colima_env kept for backward compat with start_builtin (finds binary itself)
-fn colima_env(resource_dir: &PathBuf) -> Vec<(String, String)> {
-    if let Some(colima) = bundled_colima(resource_dir) {
-        return colima_env_for(&colima);
-    }
-    // Fallback: use resource_dir layout
-    let lima_dir = resource_dir.join("runtime/lima");
-    let mut env = vec![];
-    env.push(("PATH".to_string(), format!(
-        "{}:{}:{}:/usr/local/bin:/usr/bin:/bin",
-        lima_dir.join("bin").display(),
-        resource_dir.join("runtime/colima/bin").display(),
-        resource_dir.join("runtime/docker/bin").display(),
-    )));
-    env.push(("LIMA_HOME".to_string(),
-        dirs::home_dir().unwrap_or_default().join(".lima").to_string_lossy().to_string(),
-    ));
-    env.push(("LIMA_DIR".to_string(), lima_dir.to_string_lossy().to_string()));
-    env
-}
 
 /// Detect current runtime status
 pub fn detect_runtime(resource_dir: &PathBuf) -> RuntimeStatus {
@@ -152,18 +132,22 @@ pub fn detect_runtime(resource_dir: &PathBuf) -> RuntimeStatus {
         };
     }
 
-    // Check if bundled Colima exists
-    if bundled_colima(resource_dir).is_some() {
-        // Check if Colima VM is running
-        let running = is_colima_running(resource_dir);
+    // Check if Colima is already running via socket (works even without binary)
+    if colima_socket_path().exists() {
         return RuntimeStatus {
             kind: RuntimeKind::Builtin,
-            running,
-            message: if running {
-                "Built-in runtime (Colima) is running".to_string()
-            } else {
-                "Built-in runtime (Colima) is stopped".to_string()
-            },
+            running: true,
+            message: "Built-in runtime (Colima) is running".to_string(),
+        };
+    }
+
+    // Check if bundled Colima binary exists and can be started
+    // (socket doesn't exist at this point, so running: false)
+    if bundled_colima(resource_dir).is_some() {
+        return RuntimeStatus {
+            kind: RuntimeKind::Builtin,
+            running: false,
+            message: "Built-in runtime (Colima) is stopped".to_string(),
         };
     }
 
@@ -174,19 +158,6 @@ pub fn detect_runtime(resource_dir: &PathBuf) -> RuntimeStatus {
     }
 }
 
-fn is_colima_running(resource_dir: &PathBuf) -> bool {
-    let Some(colima) = bundled_colima(resource_dir) else {
-        return false;
-    };
-
-    let env = colima_env(resource_dir);
-    Command::new(&colima)
-        .args(["status"])
-        .envs(env)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
 
 /// Get the Colima docker socket path
 pub fn colima_socket_path() -> PathBuf {
@@ -379,30 +350,7 @@ pub fn start_builtin_with_config(resource_dir: &PathBuf, config: &VmConfig) -> R
         }
     }
 
-    // Create /var/run/docker.sock symlink so all tools find the socket
-    create_docker_sock_symlink();
-
     Ok("Runtime started".to_string())
-}
-
-/// Create symlink from /var/run/docker.sock to Colima socket (requires sudo)
-fn create_docker_sock_symlink() {
-    let colima_sock = colima_socket_path();
-    if !colima_sock.exists() {
-        return;
-    }
-    let target = std::path::Path::new("/var/run/docker.sock");
-    if target.exists() {
-        return; // Already exists, don't overwrite
-    }
-    // Use osascript for admin privileges (GUI password dialog)
-    let script = format!(
-        r#"do shell script "ln -sf {} /var/run/docker.sock" with administrator privileges"#,
-        colima_sock.display()
-    );
-    let _ = Command::new("osascript")
-        .args(["-e", &script])
-        .output();
 }
 
 /// Stop the bundled Colima runtime
