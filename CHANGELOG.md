@@ -1,3 +1,20 @@
+# v0.3.1 (Thu May 14 2026)
+
+#### 🐛 Bug Fix
+
+- fix: activate app on tray click for immediate window focus ([@yurseria](https://github.com/yurseria))
+
+#### ⚠️ Pushed to `release`
+
+- Merge remote-tracking branch 'origin/release' ([@yurseria](https://github.com/yurseria))
+- refactor: replace osascript with native alternatives ([@yurseria](https://github.com/yurseria))
+
+#### Authors: 1
+
+- minsu ([@yurseria](https://github.com/yurseria))
+
+---
+
 # v0.3.0 (Fri Apr 17 2026)
 
 #### 🚀 Enhancement
