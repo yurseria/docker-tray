@@ -239,6 +239,16 @@ pub fn run() {
 
                             let _ = window
                                 .set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+                            #[cfg(target_os = "macos")]
+                            {
+                                use objc2::MainThreadMarker;
+                                use objc2_app_kit::NSApplication;
+                                if let Some(mtm) = MainThreadMarker::new() {
+                                    let ns_app = NSApplication::sharedApplication(mtm);
+                                    #[allow(deprecated)]
+                                    ns_app.activateIgnoringOtherApps(true);
+                                }
+                            }
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
