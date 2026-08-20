@@ -39,9 +39,10 @@ jobs:
       - name: Release
         id: release
         run: |
+          BEFORE=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           npx auto shipit
           TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$TAG" ]; then
+          if [ -n "$TAG" ] && [ "$TAG" != "$BEFORE" ]; then
             echo "tag=$TAG" >> $GITHUB_OUTPUT
             echo "released=true" >> $GITHUB_OUTPUT
           else

@@ -28,6 +28,7 @@
 ### Docker 런타임
 - **내장 런타임**: Colima 기반 경량 VM을 번들하여 Docker Desktop/OrbStack 없이 독립 실행
 - **외부 런타임 호환**: Docker Desktop, OrbStack 등 기존 런타임이 있으면 자동 감지하여 사용
+- **Apple Container**: macOS 26 이상 Apple Silicon에서 Apple `container` CLI 지원 (Docker Compose 제외)
 - **자동 시작**: 앱 실행 시 Docker가 없으면 내장 런타임 자동 시작
 - **로그인 시 실행**: Settings에서 "Start at Login" 토글
 
