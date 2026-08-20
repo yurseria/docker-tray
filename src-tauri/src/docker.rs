@@ -89,6 +89,19 @@ fn docker_cmd() -> Command {
     cmd
 }
 
+/// Build a CLI command for an exec-style operation, choosing `docker` or
+/// Apple's `container` based on the active provider. For Docker the command
+/// verb is `exec`/`cp`; for Apple it's the same subcommand names under `container`.
+fn exec_cmd(provider: crate::provider::ProviderKind, verb: &str) -> Command {
+    let mut cmd = if provider == crate::provider::ProviderKind::Apple {
+        Command::new("container")
+    } else {
+        docker_cmd()
+    };
+    cmd.arg(verb);
+    cmd
+}
+
 fn validate_container_id(id: &str) -> Result<(), String> {
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err("Invalid container ID".to_string());
@@ -130,8 +143,13 @@ fn container_from_summary(c: bollard::models::ContainerSummary) -> ContainerInfo
 
 #[tauri::command]
 pub async fn list_containers(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
 ) -> Result<Vec<ContainerGroup>, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::list_containers();
+    }
+
     let opts = ListContainersOptions::<String> {
         all: true,
         ..Default::default()
@@ -172,7 +190,14 @@ pub async fn list_containers(
 }
 
 #[tauri::command]
-pub async fn list_images(docker: State<'_, DockerState>) -> Result<Vec<ImageInfo>, String> {
+pub async fn list_images(
+    provider: State<'_, crate::provider::ProviderState>,
+    docker: State<'_, DockerState>,
+) -> Result<Vec<ImageInfo>, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::list_images();
+    }
+
     let opts = ListImagesOptions::<String> {
         all: false,
         ..Default::default()
@@ -195,7 +220,14 @@ pub async fn list_images(docker: State<'_, DockerState>) -> Result<Vec<ImageInfo
 }
 
 #[tauri::command]
-pub async fn list_volumes(docker: State<'_, DockerState>) -> Result<Vec<VolumeInfo>, String> {
+pub async fn list_volumes(
+    provider: State<'_, crate::provider::ProviderState>,
+    docker: State<'_, DockerState>,
+) -> Result<Vec<VolumeInfo>, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::list_volumes();
+    }
+
     let opts = ListVolumesOptions::<String> {
         ..Default::default()
     };
@@ -219,7 +251,14 @@ pub async fn list_volumes(docker: State<'_, DockerState>) -> Result<Vec<VolumeIn
 }
 
 #[tauri::command]
-pub async fn list_networks(docker: State<'_, DockerState>) -> Result<Vec<NetworkInfo>, String> {
+pub async fn list_networks(
+    provider: State<'_, crate::provider::ProviderState>,
+    docker: State<'_, DockerState>,
+) -> Result<Vec<NetworkInfo>, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::list_networks();
+    }
+
     let opts = ListNetworksOptions::<String> {
         ..Default::default()
     };
@@ -243,9 +282,13 @@ pub async fn list_networks(docker: State<'_, DockerState>) -> Result<Vec<Network
 
 #[tauri::command]
 pub async fn start_container(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::start_container(&id);
+    }
     get_client(&docker)?
         .start_container(&id, None::<StartContainerOptions<String>>)
         .await
@@ -254,9 +297,13 @@ pub async fn start_container(
 
 #[tauri::command]
 pub async fn stop_container(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::stop_container(&id);
+    }
     get_client(&docker)?
         .stop_container(&id, Some(StopContainerOptions { t: 10 }))
         .await
@@ -265,22 +312,35 @@ pub async fn stop_container(
 
 #[tauri::command]
 pub async fn restart_container(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::restart_container(&id);
+    }
     get_client(&docker)?
-        .restart_container(&id, Some(bollard::container::RestartContainerOptions { t: 10 }))
+        .restart_container(
+            &id,
+            Some(bollard::container::RestartContainerOptions { t: 10 }),
+        )
         .await
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_container_logs(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
     tail: Option<String>,
     timestamps: Option<bool>,
 ) -> Result<Vec<String>, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        // Apple Container logs have no timestamp annotation; ignore the flag.
+        let t = tail.as_deref();
+        return crate::apple::get_container_logs(&id, t);
+    }
     use futures_util::StreamExt;
 
     let opts = LogsOptions::<String> {
@@ -306,11 +366,15 @@ pub async fn get_container_logs(
 
 #[tauri::command]
 pub async fn get_container_logs_since(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
     since: i64,
     timestamps: Option<bool>,
 ) -> Result<Vec<String>, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::get_container_logs_since(&id, since, timestamps.unwrap_or(false));
+    }
     use futures_util::StreamExt;
 
     let opts = LogsOptions::<String> {
@@ -335,7 +399,14 @@ pub async fn get_container_logs_since(
 }
 
 #[tauri::command]
-pub async fn docker_ping(docker: State<'_, DockerState>) -> Result<bool, String> {
+pub async fn docker_ping(
+    provider: State<'_, crate::provider::ProviderState>,
+    docker: State<'_, DockerState>,
+) -> Result<bool, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        // Probe the Apple backend by listing containers.
+        return crate::apple::list_containers().map(|_| true);
+    }
     get_client(&docker)?
         .ping()
         .await
@@ -347,28 +418,33 @@ pub async fn docker_ping(docker: State<'_, DockerState>) -> Result<bool, String>
 
 #[tauri::command]
 pub async fn get_container_env(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<Vec<String>, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::get_container_env(&id);
+    }
     let info = get_client(&docker)?
         .inspect_container(&id, None::<InspectContainerOptions>)
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(info
-        .config
-        .and_then(|c| c.env)
-        .unwrap_or_default())
+    Ok(info.config.and_then(|c| c.env).unwrap_or_default())
 }
 
 // --- Remove ---
 
 #[tauri::command]
 pub async fn remove_container(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
     force: Option<bool>,
 ) -> Result<(), String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::remove_container(&id, force.unwrap_or(false));
+    }
     get_client(&docker)?
         .remove_container(
             &id,
@@ -383,9 +459,13 @@ pub async fn remove_container(
 
 #[tauri::command]
 pub async fn remove_image(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::remove_image(&id);
+    }
     get_client(&docker)?
         .remove_image(
             &id,
@@ -402,9 +482,13 @@ pub async fn remove_image(
 
 #[tauri::command]
 pub async fn remove_volume(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     name: String,
 ) -> Result<(), String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::remove_volume(&name);
+    }
     get_client(&docker)?
         .remove_volume(&name, None)
         .await
@@ -413,9 +497,13 @@ pub async fn remove_volume(
 
 #[tauri::command]
 pub async fn remove_network(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<(), String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::remove_network(&id);
+    }
     get_client(&docker)?
         .remove_network(&id)
         .await
@@ -426,9 +514,13 @@ pub async fn remove_network(
 
 #[tauri::command]
 pub async fn pull_image(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     image: String,
 ) -> Result<(), String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::pull_image(&image);
+    }
     use futures_util::StreamExt;
 
     let (repo, tag) = match image.split_once(':') {
@@ -476,15 +568,25 @@ pub struct CreateContainerInput {
 
 #[tauri::command]
 pub async fn create_container(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     input: CreateContainerInput,
 ) -> Result<String, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::create_container(&input);
+    }
     let mut exposed_ports = HashMap::new();
     let mut port_bindings: PortMap = HashMap::new();
 
     for p in &input.ports {
-        let host_port: u16 = p.host.parse().map_err(|_| format!("Invalid host port: {}", p.host))?;
-        let container_port_num: u16 = p.container.parse().map_err(|_| format!("Invalid container port: {}", p.container))?;
+        let host_port: u16 = p
+            .host
+            .parse()
+            .map_err(|_| format!("Invalid host port: {}", p.host))?;
+        let container_port_num: u16 = p
+            .container
+            .parse()
+            .map_err(|_| format!("Invalid container port: {}", p.container))?;
         if host_port == 0 || container_port_num == 0 {
             return Err("Port must be between 1 and 65535".to_string());
         }
@@ -541,7 +643,14 @@ pub async fn create_container(
 // --- Docker Compose ---
 
 #[tauri::command]
-pub async fn compose_up(file_path: String, app: tauri::AppHandle) -> Result<String, String> {
+pub async fn compose_up(
+    provider: State<'_, crate::provider::ProviderState>,
+    file_path: String,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return Err("Apple Container does not support Docker Compose".to_string());
+    }
     let path = Path::new(&file_path);
     if !path.is_file() {
         return Err(format!("File not found: {}", file_path));
@@ -602,9 +711,13 @@ pub struct MountInfo {
 
 #[tauri::command]
 pub async fn get_container_mounts(
+    provider: State<'_, crate::provider::ProviderState>,
     docker: State<'_, DockerState>,
     id: String,
 ) -> Result<Vec<MountInfo>, String> {
+    if provider.get() == crate::provider::ProviderKind::Apple {
+        return crate::apple::get_container_mounts(&id);
+    }
     let info = get_client(&docker)?
         .inspect_container(&id, None::<InspectContainerOptions>)
         .await
@@ -684,6 +797,7 @@ pub async fn detect_terminal() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn open_terminal(
+    provider: State<'_, crate::provider::ProviderState>,
     container_id: String,
     _container_name: String,
     shell: Option<String>,
@@ -702,15 +816,15 @@ pub async fn open_terminal(
         Some(ref t) if t != "auto" => t.clone(),
         _ => detect_terminal().await?,
     };
-    let docker_cmd = format!("docker exec -it {} {}", container_id, sh);
+    let exec_cmd = if provider.get() == crate::provider::ProviderKind::Apple {
+        format!("container exec -i -t {} {}", container_id, sh)
+    } else {
+        format!("docker exec -it {} {}", container_id, sh)
+    };
 
     // Write a temp script so the terminal runs a single clean command
     let tmp = std::env::temp_dir().join(format!("docker-tray-{}.sh", container_id));
-    std::fs::write(
-        &tmp,
-        format!("#!/bin/sh\n{}\n", docker_cmd),
-    )
-    .map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, format!("#!/bin/sh\n{}\n", exec_cmd)).map_err(|e| e.to_string())?;
 
     #[cfg(unix)]
     {
@@ -766,13 +880,15 @@ pub struct FileEntry {
 
 #[tauri::command]
 pub async fn list_container_files(
+    provider: State<'_, crate::provider::ProviderState>,
     container_id: String,
     path: String,
 ) -> Result<Vec<FileEntry>, String> {
     validate_container_id(&container_id)?;
+    let p = provider.get();
     // Try GNU ls first, fallback to plain ls for BusyBox/Alpine
-    let output = docker_cmd()
-        .args(["exec", &container_id, "ls", "-la", "--time-style=long-iso", &path])
+    let output = exec_cmd(p, "exec")
+        .args([&container_id, "ls", "-la", "--time-style=long-iso", &path])
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -780,8 +896,8 @@ pub async fn list_container_files(
         (String::from_utf8_lossy(&output.stdout).to_string(), true)
     } else {
         // Fallback: plain ls -la (BusyBox)
-        let fallback = docker_cmd()
-            .args(["exec", &container_id, "ls", "-la", &path])
+        let fallback = exec_cmd(p, "exec")
+            .args([&container_id, "ls", "-la", &path])
             .output()
             .map_err(|e| e.to_string())?;
         if !fallback.status.success() {
@@ -810,7 +926,15 @@ pub async fn list_container_files(
                 // BusyBox: parts[4]=size, parts[5]=mon, parts[6]=day, parts[7]=time/year, parts[8..]=name
                 if parts.len() < 9 {
                     // Some BusyBox outputs have fewer columns
-                    (4, 8.min(parts.len()), format!("{} {}", parts.get(5).unwrap_or(&""), parts.get(6).unwrap_or(&"")))
+                    (
+                        4,
+                        8.min(parts.len()),
+                        format!(
+                            "{} {}",
+                            parts.get(5).unwrap_or(&""),
+                            parts.get(6).unwrap_or(&"")
+                        ),
+                    )
                 } else {
                     (4, 8, format!("{} {} {}", parts[5], parts[6], parts[7]))
                 }
@@ -844,12 +968,13 @@ pub async fn list_container_files(
 
 #[tauri::command]
 pub async fn read_container_file(
+    provider: State<'_, crate::provider::ProviderState>,
     container_id: String,
     path: String,
 ) -> Result<String, String> {
     validate_container_id(&container_id)?;
-    let output = docker_cmd()
-        .args(["exec", &container_id, "cat", &path])
+    let output = exec_cmd(provider.get(), "exec")
+        .args([&container_id, "cat", &path])
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -863,14 +988,15 @@ pub async fn read_container_file(
 
 #[tauri::command]
 pub async fn save_from_container(
+    provider: State<'_, crate::provider::ProviderState>,
     container_id: String,
     container_path: String,
     host_path: String,
 ) -> Result<(), String> {
     validate_container_id(&container_id)?;
     let src = format!("{}:{}", container_id, container_path);
-    let output = docker_cmd()
-        .args(["cp", &src, &host_path])
+    let output = exec_cmd(provider.get(), "cp")
+        .args([&src, &host_path])
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -883,14 +1009,15 @@ pub async fn save_from_container(
 
 #[tauri::command]
 pub async fn import_to_container(
+    provider: State<'_, crate::provider::ProviderState>,
     container_id: String,
     host_path: String,
     container_path: String,
 ) -> Result<(), String> {
     validate_container_id(&container_id)?;
     let dest = format!("{}:{}", container_id, container_path);
-    let output = docker_cmd()
-        .args(["cp", &host_path, &dest])
+    let output = exec_cmd(provider.get(), "cp")
+        .args([&host_path, &dest])
         .output()
         .map_err(|e| e.to_string())?;
 

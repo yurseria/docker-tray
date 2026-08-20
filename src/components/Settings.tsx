@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import type { Provider } from "../types";
+import { providerCapabilities } from "../types";
 
 interface SettingsData {
   terminal: string;
   shell: string;
   refreshInterval: number;
   uiScale: number;
+  /** Active runtime provider (kept in sync with the backend `provider.json`). */
+  provider: Provider;
 }
 
 const STORAGE_KEY = "docker-tray-settings";
@@ -15,6 +19,7 @@ const DEFAULTS: SettingsData = {
   shell: "/bin/sh",
   refreshInterval: 5,
   uiScale: 1.0,
+  provider: "docker",
 };
 
 function loadSettings(): SettingsData {
@@ -39,6 +44,8 @@ export function applyScale(scale: number) {
 interface Props {
   onClose: () => void;
   onVmRestart?: () => void;
+  /** Called after the user picks a different runtime provider. */
+  onProviderChange?: (provider: Provider) => void;
 }
 
 interface VmConfig {
@@ -56,7 +63,7 @@ interface UpdateInfo {
 
 type UpdateStatus = "idle" | "checking" | "up-to-date" | "update-available" | "error";
 
-export function Settings({ onClose, onVmRestart }: Props) {
+export function Settings({ onClose, onVmRestart, onProviderChange }: Props) {
   const [settings, setSettings] = useState<SettingsData>(loadSettings);
   const [detectedTerminal, setDetectedTerminal] = useState("...");
   const [autostart, setAutostart] = useState(false);
@@ -82,6 +89,10 @@ export function Settings({ onClose, onVmRestart }: Props) {
   useEffect(() => {
     invoke<string>("get_app_version").then(setAppVersion).catch(() => {});
     invoke<boolean>("get_autostart").then(setAutostart).catch(() => {});
+    // Sync the persisted provider from the backend (source of truth).
+    invoke<Provider>("get_provider")
+      .then((p) => update({ provider: p }))
+      .catch(() => {});
     invoke<string>("detect_terminal").then((t) => {
       const names: Record<string, string> = {
         ghostty: "Ghostty",
@@ -115,6 +126,20 @@ export function Settings({ onClose, onVmRestart }: Props) {
     }
   };
 
+  // Provider selection persists to disk (backend is source of truth) and also
+  // mirrors into the localStorage settings for quick UI reads.
+  const changeProvider = async (provider: Provider) => {
+    try {
+      await invoke("set_provider", { provider });
+    } catch (e) {
+      console.error("Failed to set provider:", e);
+    }
+    update({ provider });
+    onProviderChange?.(provider);
+  };
+
+  const caps = providerCapabilities(settings.provider);
+
   const update = (partial: Partial<SettingsData>) => {
     setSettings((prev) => {
       const next = { ...prev, ...partial };
@@ -136,6 +161,24 @@ export function Settings({ onClose, onVmRestart }: Props) {
       </div>
 
       <div className="settings-content">
+        <div className="settings-group">
+          <label className="settings-label">Runtime</label>
+          <select
+            className="settings-select"
+            value={settings.provider}
+            onChange={(e) => changeProvider(e.target.value as Provider)}
+          >
+            <option value="docker">Docker</option>
+            <option value="apple">Apple Container</option>
+            <option value="colima">Built-in (Colima)</option>
+          </select>
+          <span className="settings-hint">
+            {settings.provider === "apple"
+              ? "Requires macOS 15+/26+ & Apple Silicon"
+              : "Restart the app after switching for a clean reconnect"}
+          </span>
+        </div>
+
         <div className="settings-group">
           <label className="settings-label">UI Scale</label>
           <div className="scale-options">
@@ -215,7 +258,7 @@ export function Settings({ onClose, onVmRestart }: Props) {
           </label>
         </div>
 
-        {vmDraft && (
+        {caps.vmResources && vmDraft && (
           <>
             <div className="settings-divider" />
             <div className="settings-section-title">VM Resources</div>

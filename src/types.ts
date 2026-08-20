@@ -42,4 +42,23 @@ export interface NetworkInfo {
   containers: number;
 }
 
+/** Active container runtime provider (mirrors the Rust `ProviderKind`). */
+export type Provider = "docker" | "apple" | "colima";
+
+/** Whether a feature is supported by the current provider. */
+export interface ProviderCapabilities {
+  compose: boolean;
+  logTimestamps: boolean;
+  /** VM resource controls (CPU/memory/disk) only exist for the Colima VM. */
+  vmResources: boolean;
+}
+
+export function providerCapabilities(p: Provider): ProviderCapabilities {
+  if (p === "apple") {
+    return { compose: false, logTimestamps: false, vmResources: false };
+  }
+  // Docker (external) has no in-app VM; Colima does.
+  return { compose: true, logTimestamps: true, vmResources: p === "colima" };
+}
+
 export type Tab = "containers" | "images" | "volumes" | "networks";

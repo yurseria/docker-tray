@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { Provider } from "../types";
+import { providerCapabilities } from "../types";
 
 interface Props {
   containerId: string;
@@ -11,9 +13,15 @@ export function LogWindow({ containerId, containerName }: Props) {
   const [follow, setFollow] = useState(true);
   const [lineWrap, setLineWrap] = useState(true);
   const [timestamps, setTimestamps] = useState(false);
+  const [provider, setProvider] = useState<Provider>("docker");
+  const caps = providerCapabilities(provider);
   const bottomRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const lastFetchRef = useRef<number>(0);
+
+  useEffect(() => {
+    invoke<Provider>("get_provider").then(setProvider).catch(() => {});
+  }, []);
 
   // Initial fetch + refetch when timestamps toggle changes
   useEffect(() => {
@@ -88,13 +96,15 @@ export function LogWindow({ containerId, containerName }: Props) {
           >
             <i className="ri-text-wrap" /> Wrap
           </button>
-          <button
-            className={`log-toggle-btn ${timestamps ? "active" : ""}`}
-            onClick={() => setTimestamps((v) => !v)}
-            title="Timestamps"
-          >
-            <i className="ri-time-line" /> Time
-          </button>
+          {caps.logTimestamps && (
+            <button
+              className={`log-toggle-btn ${timestamps ? "active" : ""}`}
+              onClick={() => setTimestamps((v) => !v)}
+              title="Timestamps"
+            >
+              <i className="ri-time-line" /> Time
+            </button>
+          )}
           <button
             className={`log-toggle-btn ${follow ? "active" : ""}`}
             onClick={() => {

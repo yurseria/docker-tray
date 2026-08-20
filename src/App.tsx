@@ -10,7 +10,8 @@ import { Settings, getSettings } from "./components/Settings";
 import { PullImageDialog } from "./components/PullImageDialog";
 import { CreateContainerDialog } from "./components/CreateContainerDialog";
 import { ComposeDialog } from "./components/ComposeDialog";
-import type { Tab } from "./types";
+import type { Tab, Provider } from "./types";
+import { providerCapabilities } from "./types";
 import "./App.css";
 
 type DialogType = "pull" | "create" | "compose" | null;
@@ -28,6 +29,9 @@ function App() {
   const [dialog, setDialog] = useState<DialogType>(null);
   const [createImage, setCreateImage] = useState<string | undefined>();
   const [search, setSearch] = useState("");
+  const [provider, setProvider] = useState<Provider>("docker");
+
+  const caps = providerCapabilities(provider);
 
   const appRef = useRef<HTMLDivElement>(null);
   useAutoResize(appRef);
@@ -48,6 +52,13 @@ function App() {
     ping();
     fetchCurrentTab();
   }, [activeTab, ping, fetchCurrentTab]);
+
+  // Keep the active provider in sync with the backend (source of truth).
+  useEffect(() => {
+    invoke<Provider>("get_provider")
+      .then(setProvider)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const ms = getSettings().refreshInterval * 1000;
@@ -190,13 +201,15 @@ function App() {
         >
           <i className="ri-add-box-line" />
         </button>
-        <button
-          className="settings-btn"
-          onClick={() => setDialog("compose")}
-          title="Compose Up"
-        >
-          <i className="ri-file-upload-line" />
-        </button>
+        {caps.compose && (
+          <button
+            className="settings-btn"
+            onClick={() => setDialog("compose")}
+            title="Compose Up"
+          >
+            <i className="ri-file-upload-line" />
+          </button>
+        )}
         <button
           className="settings-btn"
           onClick={() => setShowSettings((v) => !v)}
@@ -216,6 +229,16 @@ function App() {
             setRuntimeStatus("Restarting VM...");
             docker.disconnect();
             startPolling();
+          }}
+          onProviderChange={(p) => {
+            setProvider(p);
+            setShowSettings(false);
+            // Force a reconnect to the newly selected runtime. The backend has
+            // already cleared any stale client; poll until it answers.
+            setRuntimeError(null);
+            setRuntimeStatus("Switching runtime...");
+            docker.disconnect();
+            ping();
           }}
         />
       ) : (
