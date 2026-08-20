@@ -1,3 +1,20 @@
+# v0.4.0 (Thu Aug 20 2026)
+
+#### 🚀 Enhancement
+
+- feat: document Apple Container support ([@yurseria](https://github.com/yurseria))
+- feat: add Apple Container runtime support ([@yurseria](https://github.com/yurseria))
+
+#### ⚠️ Pushed to `release`
+
+- chore: merge release branch ([@yurseria](https://github.com/yurseria))
+
+#### Authors: 1
+
+- minsu ([@yurseria](https://github.com/yurseria))
+
+---
+
 # v0.3.1 (Thu May 14 2026)
 
 #### 🐛 Bug Fix
