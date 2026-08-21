@@ -2,7 +2,7 @@ use crate::provider::ProviderKind;
 use bollard::Docker;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub enum RuntimeKind {
@@ -96,6 +96,82 @@ fn bundled_colima(resource_dir: &PathBuf) -> Option<PathBuf> {
     None
 }
 
+/// Locate Homebrew even when the app was launched from Finder and inherited a
+/// minimal PATH.
+fn homebrew() -> Option<PathBuf> {
+    for path in &["/opt/homebrew/bin/brew", "/usr/local/bin/brew"] {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    Command::new("sh")
+        .args(["-lc", "command -v brew"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            (!path.is_empty()).then(|| PathBuf::from(path))
+        })
+}
+
+fn command_error(action: &str, output: &Output) -> String {
+    let details = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let details = details.trim();
+
+    if details.is_empty() {
+        format!("{action} failed with status {}", output.status)
+    } else {
+        format!("{action} failed: {details}")
+    }
+}
+
+/// Install a usable local runtime when a development or slim app bundle does
+/// not contain Colima. This is also used by the Start Runtime button.
+fn install_colima() -> Result<PathBuf, String> {
+    let brew = homebrew().ok_or(
+        "Colima is not bundled and Homebrew was not found. Install Homebrew, then try again.",
+    )?;
+
+    let mut formulas = Vec::new();
+    for formula in ["colima", "docker"] {
+        let installed = Command::new(&brew)
+            .args(["list", "--formula", formula])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        if !installed {
+            formulas.push(formula);
+        }
+    }
+
+    if !formulas.is_empty() {
+        let output = Command::new(&brew)
+            .arg("install")
+            .args(&formulas)
+            .output()
+            .map_err(|error| format!("Could not run Homebrew: {error}"))?;
+        if !output.status.success() {
+            return Err(command_error("Installing Colima", &output));
+        }
+    }
+
+    bundled_colima(&PathBuf::new()).ok_or_else(|| {
+        "Colima was installed, but its executable could not be found. Restart the app and try again."
+            .to_string()
+    })
+}
+
+fn ensure_colima(resource_dir: &PathBuf) -> Result<PathBuf, String> {
+    bundled_colima(resource_dir).map_or_else(install_colima, Ok)
+}
+
 /// Resolve the runtime base dir from a Colima binary path
 /// e.g. .../runtime/colima/bin/colima → .../runtime
 fn runtime_base_from_colima(colima_path: &Path) -> Option<PathBuf> {
@@ -104,33 +180,41 @@ fn runtime_base_from_colima(colima_path: &Path) -> Option<PathBuf> {
 
 /// Build environment variables for Colima, derived from the known binary path
 fn colima_env_for(colima_path: &Path) -> Vec<(String, String)> {
-    let runtime_base =
-        runtime_base_from_colima(colima_path).unwrap_or_else(|| PathBuf::from("/usr/local"));
-
-    let lima_dir = runtime_base.join("lima");
-    let mut env = vec![];
-
-    env.push((
-        "PATH".to_string(),
-        format!(
-            "{}:{}:{}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
-            lima_dir.join("bin").display(),
-            runtime_base.join("colima/bin").display(),
-            runtime_base.join("docker/bin").display(),
-        ),
-    ));
-    env.push((
+    let mut env = vec![(
         "LIMA_HOME".to_string(),
         dirs::home_dir()
             .unwrap_or_default()
             .join(".lima")
             .to_string_lossy()
             .to_string(),
-    ));
-    env.push((
-        "LIMA_DIR".to_string(),
-        lima_dir.to_string_lossy().to_string(),
-    ));
+    )];
+
+    // A bundled Colima lives in runtime/colima/bin and has matching sibling
+    // lima/docker directories. Homebrew Colima must use Homebrew's own paths;
+    // setting LIMA_DIR to a guessed bundle path prevents it from starting.
+    if let Some(runtime_base) = runtime_base_from_colima(colima_path).filter(|base| {
+        base.join("lima/bin/limactl").exists() && base.join("docker/bin/docker").exists()
+    }) {
+        let lima_dir = runtime_base.join("lima");
+        env.push((
+            "PATH".to_string(),
+            format!(
+                "{}:{}:{}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
+                lima_dir.join("bin").display(),
+                runtime_base.join("colima/bin").display(),
+                runtime_base.join("docker/bin").display(),
+            ),
+        ));
+        env.push((
+            "LIMA_DIR".to_string(),
+            lima_dir.to_string_lossy().to_string(),
+        ));
+    } else {
+        env.push((
+            "PATH".to_string(),
+            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin".to_string(),
+        ));
+    }
 
     env
 }
@@ -416,7 +500,7 @@ pub fn start_builtin_with_config(
     resource_dir: &PathBuf,
     config: &VmConfig,
 ) -> Result<String, String> {
-    let colima = bundled_colima(resource_dir).ok_or("Bundled Colima not found")?;
+    let colima = ensure_colima(resource_dir)?;
 
     // Update config files so existing VMs pick up the new values
     write_vm_config(config);
