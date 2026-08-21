@@ -1,3 +1,19 @@
+# v0.4.1 (Fri Aug 21 2026)
+
+#### 🐛 Bug Fix
+
+- fix: install Colima when runtime is missing ([@yurseria](https://github.com/yurseria))
+
+#### ⚠️ Pushed to `release`
+
+- chore: merge release branch ([@yurseria](https://github.com/yurseria))
+
+#### Authors: 1
+
+- minsu ([@yurseria](https://github.com/yurseria))
+
+---
+
 # v0.4.0 (Thu Aug 20 2026)
 
 #### 🚀 Enhancement
